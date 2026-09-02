@@ -370,6 +370,12 @@ _SPECTRONAUT_OPTIONAL = {
     'PEPTIDE': {'Genes': 'PG.Genes', 'Decoy': 'EG.IsDecoy', 'Grouping type': 'PEP.GroupingKeyType'},
 }
 
+# Spectronaut's quantity is rolled up per run, so the run is what becomes one 'Raw <x>' column.
+# R.Label carries the run label the condition setup assigned, and it is the same string a pivot
+# report puts in its column headers, so both report shapes name their experiments identically.
+_SPECTRONAUT_RUN = 'R.Label'
+_SPECTRONAUT_CONDITION = 'R.Condition'
+
 PARQUET_HINT = 'Reading .parquet reports requires pyarrow. Please install it with: pip install curve_curator[parquet]'
 
 
@@ -445,10 +451,19 @@ def _load_spectronaut(path, version, level, unique_cols, sum_cols, first_cols, m
     is_long = Mapper.is_long_report(header)
     is_pivot = any(str(c).startswith('Raw ') for c in quantity_cols)
 
+    # A report exported with R.Condition instead of R.Label is the likely mistake, and it is not a
+    # column that can stand in: a condition may span several runs, and the quantity differs between
+    # them, so keying on it would ask the parser to collapse measurements that are not duplicates.
+    if not is_long and not is_pivot and _SPECTRONAUT_CONDITION in source_names:
+        raise ValueError(
+            f'The Spectronaut report has a "{_SPECTRONAUT_CONDITION}" column but no "{_SPECTRONAUT_RUN}" column. '
+            f'CurveCurator identifies an experiment by its run, because the quantity is rolled up per run and one '
+            f'condition may cover several runs. Please add "{_SPECTRONAUT_RUN}" to the report schema in Spectronaut.')
+
     if not is_long and not is_pivot:
         raise ValueError(
-            'The Spectronaut report is neither a long report (no "R.Condition" column) nor a pivot report '
-            '(no "<condition>.PG.Quantity" or "<condition>.PEP.Quantity" columns). '
+            'The Spectronaut report is neither a long report (no "R.Label" column) nor a pivot report '
+            '(no "<run>.PG.Quantity" or "<run>.PEP.Quantity" columns). '
             f'The report contains: {source_names}.')
 
     required = dict(identity)
@@ -460,7 +475,7 @@ def _load_spectronaut(path, version, level, unique_cols, sum_cols, first_cols, m
                              f'Please add "{source}" to the report schema in Spectronaut.')
 
     # Read only the columns that are actually needed.
-    wanted = {'Condition'} | set(required) | set(optional)
+    wanted = {'Run'} | set(required) | set(optional)
     source_cols = [c for c, name in zip(source_names, canonical) if name in wanted]
     if not is_long:
         source_cols += [c for c, name in zip(source_names, quantity_cols) if str(name).startswith('Raw ')]
@@ -486,10 +501,10 @@ def _load_spectronaut(path, version, level, unique_cols, sum_cols, first_cols, m
             ui.message(f" * Spectronaut grouped the peptides by: {', '.join(grains)}.")
 
     if is_long:
-        if df['Condition'].isna().any():
-            raise ValueError('The "R.Condition" column contains empty values. Please assign a condition to every '
-                             'run in the Spectronaut condition setup and export the report again.')
-        assert_constant_within(df, keys=unique_cols + ['Condition'], cols=['Quantity'])
+        if df['Run'].isna().any():
+            raise ValueError(f'The "{_SPECTRONAUT_RUN}" column contains empty values. Please give every run a label '
+                             'in the Spectronaut condition setup and export the report again.')
+        assert_constant_within(df, keys=unique_cols + ['Run'], cols=['Quantity'])
         df = Mapper.restructure_long_report(df, index=unique_cols, value_col='Quantity')
     else:
         assert_constant_within(df, keys=unique_cols, cols=[c for c in df.columns if str(c).startswith('Raw ')])
