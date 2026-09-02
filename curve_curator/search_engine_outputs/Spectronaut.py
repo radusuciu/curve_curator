@@ -5,7 +5,8 @@ import pandas as pd
 def _to_parquet_name(col):
     """
     Spectronaut's parquet writer derives each parquet column name from the csv one by replacing
-    the first dot and every space with an underscore. 'PG.Quantity' becomes 'PG_Quantity'.
+    every dot and every space with an underscore. 'PG.Quantity' becomes 'PG_Quantity', and a pivot
+    report's '[1] CondA.PG.Quantity' becomes '[1]_CondA_PG_Quantity'.
 
     Parameters
     ----------
@@ -15,7 +16,7 @@ def _to_parquet_name(col):
     -------
     col : str
     """
-    return col.replace('.', '_', 1).replace(' ', '_')
+    return col.replace('.', '_').replace(' ', '_')
 
 
 class SpectronautMap:
@@ -37,7 +38,15 @@ class SpectronautMap:
 
     @staticmethod
     def rename_quantity_columns(cols):
-        return cols.str.replace(r'^(?:\[\d+\]\s*)?(?P<condition>.+)\.(?:PG|PEP)\.Quantity$', r'Raw \g<condition>', regex=True)
+        """
+        Renames a pivot report's quantity headers to 'Raw <run>'.
+
+        A pivot report carries one quantity column per run, headed '[1] <run>.PG.Quantity' in the
+        csv dialect and '[1]_<run>_PG_Quantity' in the parquet one. The leading '[n] ' index is
+        optional. Anything else, the long report's plain 'PG.Quantity' included, passes through.
+        """
+        cols = cols.str.replace(r'^(?:\[\d+\]\s*)?(?P<run>.+)\.(?:PG|PEP)\.Quantity$', r'Raw \g<run>', regex=True)
+        return cols.str.replace(r'^(?:\[\d+\]_)?(?P<run>.+)_(?:PG|PEP)_Quantity$', r'Raw \g<run>', regex=True)
 
     @staticmethod
     def is_long_report(df):
