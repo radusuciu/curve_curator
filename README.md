@@ -56,6 +56,10 @@ We have registred CurveCurator in PyPi (https://pypi.org/project/curve-curator/)
 ```sh
 (CurveCuratorEnv)$ pip install curve-curator
 ```
+Reading Spectronaut reports in the .parquet format needs one optional extra dependency, which you can install with the following command instead. All other input formats work without it.
+```sh
+(CurveCuratorEnv)$ pip install curve-curator[parquet]
+```
 Verify installation by seeing that the program exists. If everything was done correctly, you will see the help output of CurveCurator (as shown below) and you are done with the installation.
 ```sh
 (CurveCuratorEnv)$ CurveCurator -h
@@ -96,6 +100,7 @@ For MAXQUANT, use the protein.txt file for protein-based analysis and the eviden
 For DIANN, it outputs raw file names as columns. Please rename manually to Raw 1..N.
 For PD, the order of the files is important. PD normally labels the output experiments with F1..N. These numbers will be parsed by the CurveCurator. Please make sure that toml file has the same N to dose correspondences. 
 For MSFRAGGER, name your TMT channels or LFQ experiments Raw_1...N. The peptide-based analysis expects the (combined_)ion.tsv file. The protein-based analysis expects the (combined_)protein.tsv file.
+For SPECTRONAUT, name your conditions in the condition setup so that they match the experiments array in the toml file. Export either a normal (long) report or a pivot report. The protein-based analysis expects PG.Quantity, the peptide-based analysis expects PEP.Quantity and PEP.GroupingKey. Both need PG.ProteinGroups, and PG.Genes is used for the gene annotation if the report contains it. Reports are read from .tsv and from .parquet files. If the report contains EG.IsDecoy, decoys are removed for you, so there is no need to filter the report first.
 
 <a name="tomlfile_toc"/>
 
@@ -114,7 +119,7 @@ CurveCurator toml files have up to 7 `[sections]`. Obligatory ***`keys`*** are i
 	- ***`control_experiment`*** specifies the experiment name(s) that contains the control (= 0.0 dose(s)). If there is a single control, specify the name. If multiple controls exist in the data, specify an array of controls, e.g. [1, 2, 3] for three control replicates with names 1, 2, and 3. Importantly, the names must match the id names in the experiments array.
   	- `measurement_type` (proteomic data) can be 'LFQ', 'TMT', 'DIA', 'OTHER'.
 	- `data_type` (proteomic data) can be 'PEPTIDE', 'PROTEIN', 'OTHER'.
-	- `search_engine` (proteomic data) can be 'MAXQUANT', 'DIANN', 'PD', 'MSFRAGGER', 'OTHER'.
+	- `search_engine` (proteomic data) can be 'MAXQUANT', 'DIANN', 'PD', 'MSFRAGGER', 'SPECTRONAUT', 'OTHER'.
 	- `search_engine_version` (proteomic data) specifies the used version. 
 
 - `['Paths']` contains all path information that is relevant for the IO of the pipeline. Please note that all paths are relative to the toml file, which is currently executed. As a best practice, we recommend storing everything in one folder next to each other, resulting in the most simple relative paths possible. The paths are provided as follows: `path = './<path>/<file_name>.<extension>'`. The only path that you always need to specify is the input_file containing the raw data. All other paths serve to optionally rename the files or put them to another location than the default location next to the toml file.
