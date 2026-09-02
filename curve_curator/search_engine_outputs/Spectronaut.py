@@ -50,12 +50,12 @@ class SpectronautMap:
 
     @staticmethod
     def is_long_report(df):
-        return 'Condition' in df.columns
+        return 'Run' in df.columns
 
     @staticmethod
     def restructure_long_report(df, index, value_col):
         """
-        Pivots a long report into one 'Raw <condition>' column per condition in the report.
+        Pivots a long report into one 'Raw <run>' column per run in the report.
 
         Spectronaut has already rolled the quantity up, so a group holds one value repeated over
         the report's rows and aggfunc='first' is a lookup rather than an aggregation.
@@ -68,7 +68,7 @@ class SpectronautMap:
         Parameters
         ----------
         df : pd.DataFrame
-            long report with a 'Condition' column
+            long report with a 'Run' column
         index : array-like
             column names that identify the level being parsed
         value_col : str
@@ -78,11 +78,11 @@ class SpectronautMap:
         -------
         df : pd.DataFrame
         """
-        quantities = pd.pivot_table(data=df, values=value_col, index=index, columns='Condition', aggfunc='first', dropna=False)
+        quantities = pd.pivot_table(data=df, values=value_col, index=index, columns='Run', aggfunc='first', dropna=False)
         quantities = quantities.rename(columns=lambda c: f'Raw {c}')
         quantities.columns.name = None
         quantities.reset_index(inplace=True)
-        annotations = df.drop(columns=[value_col, 'Condition']).drop_duplicates(subset=index)
+        annotations = df.drop(columns=[value_col, 'Run']).drop_duplicates(subset=index)
         df = pd.merge(left=quantities, right=annotations, on=index, how='left')
         df.reset_index(drop=True, inplace=True)
         return df
@@ -90,7 +90,7 @@ class SpectronautMap:
     # Both quantity columns map to the same canonical name. The loaders read an explicit column
     # list, so only the one belonging to the level being parsed is ever present in the frame.
     _col_map = {
-        'R.Condition': 'Condition',
+        'R.Label': 'Run',
         'PG.ProteinGroups': 'Proteins',
         'PG.Genes': 'Genes',
         'PEP.GroupingKey': 'Modified sequence',
