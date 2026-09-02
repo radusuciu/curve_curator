@@ -11,6 +11,7 @@ from .search_engine_outputs.MaxQuant import MaxQuantMap
 from .search_engine_outputs.DIANN import DiannMap
 from .search_engine_outputs.ProteomeDiscoverer import PDMap
 from .search_engine_outputs.MSFragger import FraggerMap
+from .search_engine_outputs.Spectronaut import SpectronautMap, _to_parquet_name
 from . import user_interface as ui
 
 
@@ -40,6 +41,11 @@ def clean_modified_sequence(mod_seq):
         r'\(Acetyl \(K\)\)': '(ac)',
         r'\(GG \(K\)\)': '(ub)',
         r'C\(UniMod\:4\)': 'C',
+        r'\[Carbamidomethyl \(C\)\]': '',
+        r'M\[Oxidation \(M\)\]': 'M',
+        r'\[Acetyl \(Protein N-term\)\]': '(ac)',
+        r'\[Phospho \(STY\)\]': '(ph)',
+        r'\[GG \(K\)\]': '(ub)',
 
     }
     for old, new in mappings.items():
@@ -129,6 +135,36 @@ def aggregate_duplicates(df, keys, sum_cols=[], first_cols=[], max_cols=[], min_
     df = new_df[['N duplicates'] + first_cols + concat_cols + max_cols + min_cols + sum_cols]
     df.reset_index(inplace=True)
     return df
+
+
+def assert_constant_within(df, keys, cols):
+    """
+    Asserts that each group defined by the key columns holds at most one distinct value in cols.
+
+    Some search engines report an already aggregated quantity repeated over the rows of the level
+    below it. Such a value must be deduplicated rather than summed or averaged, and this check is
+    what makes a misjudged grain fail loudly instead of silently scaling the quantity by the number
+    of rows the report happens to carry. Missing values are not counted as a distinct value.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        input data
+    keys : array-like
+        column names defining the groups
+    cols : array-like
+        column names whose values must be constant within each group
+
+    Returns
+    -------
+    None
+    """
+    n_values = df.groupby(keys, dropna=False)[cols].nunique()
+    n_violations = int((n_values > 1).any(axis=1).sum())
+    if n_violations > 0:
+        msg = (f'{n_violations} group(s) defined by {list(keys)} contain more than one distinct value in {list(cols)}. '
+               f'The report grain is finer than the level being parsed, or the quantity column is not the aggregated one.')
+        raise ValueError(msg)
 
 
 #
@@ -315,6 +351,166 @@ def load_fragger_lqf_proteins(path, version, unique_cols, sum_cols=[], first_col
     return df
 
 #
+# Spectronaut
+#
+
+
+_SPECTRONAUT_IDENTITY = {
+    'PROTEIN': {'Proteins': 'PG.ProteinGroups'},
+    'PEPTIDE': {'Modified sequence': 'PEP.GroupingKey', 'Proteins': 'PG.ProteinGroups'},
+}
+
+_SPECTRONAUT_QUANTITY = {
+    'PROTEIN': 'PG.Quantity',
+    'PEPTIDE': 'PEP.Quantity',
+}
+
+_SPECTRONAUT_OPTIONAL = {
+    'PROTEIN': {'Genes': 'PG.Genes', 'Decoy': 'EG.IsDecoy'},
+    'PEPTIDE': {'Genes': 'PG.Genes', 'Decoy': 'EG.IsDecoy', 'Grouping type': 'PEP.GroupingKeyType'},
+}
+
+PARQUET_HINT = 'Reading .parquet reports requires pyarrow. Please install it with: pip install curve_curator[parquet]'
+
+
+def _is_parquet(path):
+    return str(path).lower().endswith('.parquet')
+
+
+def _assert_pyarrow_installed():
+    try:
+        # Imported here and not at module level: pyarrow is an optional extra, and only a
+        # .parquet report needs it.
+        import pyarrow
+    except ImportError:
+        raise ImportError(PARQUET_HINT)
+
+
+def _is_quantity_of(col, level):
+    """
+    Checks if a column is the quantity column of a given level, in either dialect and in a long or
+    a pivot header. PG.Quantity and PEP.Quantity share the canonical name 'Quantity', so a report
+    carrying both must be reduced to the one level before anything is renamed.
+    """
+    source = _SPECTRONAUT_QUANTITY[level]
+    return str(col).endswith(source) or str(col).endswith(_to_parquet_name(source))
+
+
+def _read_report_header(path):
+    """
+    Reads only the column names of a report. Both readers are cheap, so the dialect and the report
+    shape can be resolved before the body is read with an explicit column list.
+    """
+    if _is_parquet(path):
+        _assert_pyarrow_installed()
+        import pyarrow.parquet as pq
+        return pd.DataFrame(columns=pq.read_schema(path).names)
+    return pd.read_csv(path, sep='\t', nrows=0)
+
+
+def _read_report(path, columns=None):
+    """
+    Reads a report, restricted to the given columns. For a precursor-level report this is the
+    difference between a few hundred MB and a few MB of pandas memory.
+    """
+    if _is_parquet(path):
+        _assert_pyarrow_installed()
+        return pd.read_parquet(path, columns=columns)
+    return pd.read_csv(path, sep='\t', usecols=columns, low_memory=False)
+
+
+def _load_spectronaut(path, version, level, unique_cols, sum_cols, first_cols, max_cols, min_cols, concat_cols):
+    """
+    Shared body of the two Spectronaut loaders. Reads a long or a pivot report in either the csv or
+    the parquet column dialect and returns one row per identity.
+
+    Spectronaut has already aggregated the quantity, so this deduplicates rather than aggregates:
+    decoys are dropped first so that the level being parsed sees target evidence only, the quantity
+    is asserted constant within its identity, and only then is it collapsed.
+    """
+    Mapper = SpectronautMap(version)
+    identity = _SPECTRONAUT_IDENTITY[level]
+    optional = _SPECTRONAUT_OPTIONAL[level]
+    other_level = 'PEPTIDE' if level == 'PROTEIN' else 'PROTEIN'
+
+    # Resolve the dialect and the report shape from the header alone. A report commonly carries the
+    # roll-up of both levels, and both are called 'Quantity' once renamed, so the other level's
+    # column is dropped by its source name first.
+    header = _read_report_header(path)
+    header = header[[c for c in header.columns if not _is_quantity_of(c, other_level)]]
+    source_names = list(header.columns)
+    quantity_cols = list(Mapper.rename_quantity_columns(header.columns))
+    header.columns = Mapper.rename_general_columns(header.columns)
+    canonical = list(header.columns)
+    is_long = Mapper.is_long_report(header)
+    is_pivot = any(str(c).startswith('Raw ') for c in quantity_cols)
+
+    if not is_long and not is_pivot:
+        raise ValueError(
+            'The Spectronaut report is neither a long report (no "R.Condition" column) nor a pivot report '
+            '(no "<condition>.PG.Quantity" or "<condition>.PEP.Quantity" columns). '
+            f'The report contains: {source_names}.')
+
+    required = dict(identity)
+    if is_long:
+        required['Quantity'] = _SPECTRONAUT_QUANTITY[level]
+    for name, source in required.items():
+        if name not in canonical:
+            raise ValueError(f'The Spectronaut report has no "{name}" column. '
+                             f'Please add "{source}" to the report schema in Spectronaut.')
+
+    # Read only the columns that are actually needed.
+    wanted = {'Condition'} | set(required) | set(optional)
+    source_cols = [c for c, name in zip(source_names, canonical) if name in wanted]
+    if not is_long:
+        source_cols += [c for c, name in zip(source_names, quantity_cols) if str(name).startswith('Raw ')]
+
+    df = _read_report(path, columns=source_cols)
+    df.columns = Mapper.rename_general_columns(df.columns)
+    if not is_long:
+        df.columns = Mapper.rename_quantity_columns(df.columns)
+    df = Mapper.map_indicator_values(df)
+
+    # Decoys go before any quantity is read. EG.IsDecoy flags an elution group, while the quantity
+    # is an aggregate over target evidence, so a decoy row left in place would make a consistent
+    # protein group fail the constancy check below.
+    df = clean_rows(df)
+
+    # Guarantee the annotation column exists, so first_cols can name it unconditionally.
+    if 'Genes' not in df.columns:
+        df['Genes'] = df['Proteins']
+
+    if 'Grouping type' in df.columns:
+        grains = sorted(set(df['Grouping type'].dropna()))
+        if grains:
+            ui.message(f" * Spectronaut grouped the peptides by: {', '.join(grains)}.")
+
+    if is_long:
+        if df['Condition'].isna().any():
+            raise ValueError('The "R.Condition" column contains empty values. Please assign a condition to every '
+                             'run in the Spectronaut condition setup and export the report again.')
+        assert_constant_within(df, keys=unique_cols + ['Condition'], cols=['Quantity'])
+        df = Mapper.restructure_long_report(df, index=unique_cols, value_col='Quantity')
+    else:
+        assert_constant_within(df, keys=unique_cols, cols=[c for c in df.columns if str(c).startswith('Raw ')])
+
+    if level == 'PEPTIDE':
+        df['Modified sequence'] = clean_modified_sequence(df['Modified sequence'])
+
+    df = aggregate_duplicates(df, keys=unique_cols, sum_cols=sum_cols, first_cols=first_cols, max_cols=max_cols,
+                              min_cols=min_cols, concat_cols=concat_cols)
+    return df
+
+
+def load_spectronaut_dia_proteins(path, version, unique_cols, sum_cols=[], first_cols=[], max_cols=[], min_cols=[], concat_cols=[]):
+    return _load_spectronaut(path, version, 'PROTEIN', unique_cols, sum_cols, first_cols, max_cols, min_cols, concat_cols)
+
+
+def load_spectronaut_dia_peptides(path, version, unique_cols, sum_cols=[], first_cols=[], max_cols=[], min_cols=[], concat_cols=[]):
+    return _load_spectronaut(path, version, 'PEPTIDE', unique_cols, sum_cols, first_cols, max_cols, min_cols, concat_cols)
+
+
+#
 # Generic
 #
 
@@ -381,6 +577,29 @@ def load(config):
         unique_cols = ['Modified sequence']
         first_cols = ['Genes', 'Proteins']
         df = load_diann_lqf_peptide(path, search_engine_version, unique_cols=unique_cols, first_cols=first_cols, sum_cols=raw_cols)
+        if 'Name' not in df.columns:
+            df['Name'] = df['Genes']
+
+    elif (measurement_type == 'DIA') and (search_engine == 'SPECTRONAUT') and (data_type == 'PROTEIN'):
+        unique_cols = ['Proteins']
+        first_cols = ['Genes']
+        # max_cols, not sum_cols: Spectronaut reports an already aggregated quantity, and the loader
+        # has asserted it is constant within the protein group, so the max is that value.
+        df = load_spectronaut_dia_proteins(path, search_engine_version, unique_cols=unique_cols, first_cols=first_cols,
+                                           max_cols=raw_cols)
+        if 'Genes' not in df.columns:
+            df['Genes'] = df['Proteins']
+        if 'Name' not in df.columns:
+            df['Name'] = df['Genes']
+
+    elif (measurement_type == 'DIA') and (search_engine == 'SPECTRONAUT') and (data_type == 'PEPTIDE'):
+        unique_cols = ['Modified sequence']
+        first_cols = ['Proteins', 'Genes']
+        # max_cols, not sum_cols: see the protein branch above.
+        df = load_spectronaut_dia_peptides(path, search_engine_version, unique_cols=unique_cols, first_cols=first_cols,
+                                           max_cols=raw_cols)
+        if 'Genes' not in df.columns:
+            df['Genes'] = df['Proteins']
         if 'Name' not in df.columns:
             df['Name'] = df['Genes']
 
