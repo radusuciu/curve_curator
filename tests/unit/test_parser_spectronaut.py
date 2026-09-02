@@ -8,13 +8,13 @@ from curve_curator.data_parser import assert_constant_within, load, load_spectro
 
 class TestSpectronautMap:
     def test_rename_general_columns_csv_dialect(self):
-        cols = pd.Index(['R.Condition', 'PG.ProteinGroups', 'PG.Genes', 'PEP.GroupingKey', 'PEP.GroupingKeyType', 'EG.IsDecoy', 'PG.Quantity'])
-        expected_result = pd.Index(['Condition', 'Proteins', 'Genes', 'Modified sequence', 'Grouping type', 'Decoy', 'Quantity'])
+        cols = pd.Index(['R.Label', 'PG.ProteinGroups', 'PG.Genes', 'PEP.GroupingKey', 'PEP.GroupingKeyType', 'EG.IsDecoy', 'PG.Quantity'])
+        expected_result = pd.Index(['Run', 'Proteins', 'Genes', 'Modified sequence', 'Grouping type', 'Decoy', 'Quantity'])
         assert SpectronautMap.rename_general_columns(cols).equals(expected_result)
 
     def test_rename_general_columns_parquet_dialect(self):
-        cols = pd.Index(['R_Condition', 'PG_ProteinGroups', 'PG_Genes', 'PEP_GroupingKey', 'PEP_GroupingKeyType', 'EG_IsDecoy', 'PEP_Quantity'])
-        expected_result = pd.Index(['Condition', 'Proteins', 'Genes', 'Modified sequence', 'Grouping type', 'Decoy', 'Quantity'])
+        cols = pd.Index(['R_Label', 'PG_ProteinGroups', 'PG_Genes', 'PEP_GroupingKey', 'PEP_GroupingKeyType', 'EG_IsDecoy', 'PEP_Quantity'])
+        expected_result = pd.Index(['Run', 'Proteins', 'Genes', 'Modified sequence', 'Grouping type', 'Decoy', 'Quantity'])
         assert SpectronautMap.rename_general_columns(cols).equals(expected_result)
 
     def test_rename_general_columns_unknown_columns(self):
@@ -66,8 +66,8 @@ class TestRenameQuantityColumns:
         assert SpectronautMap.rename_quantity_columns(cols).equals(expected_result)
 
     def test_unrelated_columns_pass_through(self):
-        cols = pd.Index(['PG.Quantity', 'PEP.GroupingKey', 'R.Condition'])
-        expected_result = pd.Index(['PG.Quantity', 'PEP.GroupingKey', 'R.Condition'])
+        cols = pd.Index(['PG.Quantity', 'PEP.GroupingKey', 'R.Label'])
+        expected_result = pd.Index(['PG.Quantity', 'PEP.GroupingKey', 'R.Label'])
         assert SpectronautMap.rename_quantity_columns(cols).equals(expected_result)
 
     def test_parquet_dialect_pivot_header(self):
@@ -83,8 +83,8 @@ class TestRenameQuantityColumns:
         assert SpectronautMap.rename_quantity_columns(cols).equals(expected_result)
 
     def test_parquet_long_quantity_columns_are_not_pivot_headers(self):
-        cols = pd.Index(['PG_Quantity', 'PEP_Quantity', 'R_Condition'])
-        expected_result = pd.Index(['PG_Quantity', 'PEP_Quantity', 'R_Condition'])
+        cols = pd.Index(['PG_Quantity', 'PEP_Quantity', 'R_Label'])
+        expected_result = pd.Index(['PG_Quantity', 'PEP_Quantity', 'R_Label'])
         assert SpectronautMap.rename_quantity_columns(cols).equals(expected_result)
 
 
@@ -93,7 +93,7 @@ class TestRestructureLongReport:
         df = pd.DataFrame({
             'Proteins': ['P1', 'P1', 'P2', 'P2'],
             'Genes': ['G1', 'G1', 'G2', 'G2'],
-            'Condition': ['C1', 'C2', 'C1', 'C2'],
+            'Run': ['C1', 'C2', 'C1', 'C2'],
             'Quantity': [10.0, 20.0, 30.0, 40.0],
         })
         expected_result = pd.DataFrame({
@@ -109,7 +109,7 @@ class TestRestructureLongReport:
         df = pd.DataFrame({
             'Proteins': ['P1', 'P1', 'P2'],
             'Genes': ['G1', 'G1', 'G2'],
-            'Condition': ['C1', 'C2', 'C1'],
+            'Run': ['C1', 'C2', 'C1'],
             'Quantity': [10.0, 20.0, 30.0],
         })
         expected_result = pd.DataFrame({
@@ -125,7 +125,7 @@ class TestRestructureLongReport:
         df = pd.DataFrame({
             'Proteins': ['P1', 'P1', 'P2', 'P2'],
             'Genes': ['G1', 'G1', np.nan, np.nan],
-            'Condition': ['C1', 'C2', 'C1', 'C2'],
+            'Run': ['C1', 'C2', 'C1', 'C2'],
             'Quantity': [10.0, 20.0, 30.0, 40.0],
         })
         expected_result = pd.DataFrame({
@@ -142,38 +142,38 @@ class TestAssertConstantWithin:
     def test_constant_values_pass(self):
         df = pd.DataFrame({
             'Proteins': ['P1', 'P1', 'P2', 'P2'],
-            'Condition': ['C1', 'C1', 'C1', 'C2'],
+            'Run': ['C1', 'C1', 'C1', 'C2'],
             'Quantity': [10.0, 10.0, 30.0, 40.0],
         })
-        assert assert_constant_within(df, keys=['Proteins', 'Condition'], cols=['Quantity']) is None
+        assert assert_constant_within(df, keys=['Proteins', 'Run'], cols=['Quantity']) is None
 
     def test_missing_values_do_not_count(self):
         df = pd.DataFrame({
             'Proteins': ['P1', 'P1'],
-            'Condition': ['C1', 'C1'],
+            'Run': ['C1', 'C1'],
             'Quantity': [10.0, np.nan],
         })
-        assert assert_constant_within(df, keys=['Proteins', 'Condition'], cols=['Quantity']) is None
+        assert assert_constant_within(df, keys=['Proteins', 'Run'], cols=['Quantity']) is None
 
     def test_inconsistent_group_raises(self):
         df = pd.DataFrame({
             'Proteins': ['P1', 'P1', 'P2', 'P2'],
-            'Condition': ['C1', 'C1', 'C1', 'C1'],
+            'Run': ['C1', 'C1', 'C1', 'C1'],
             'Quantity': [10.0, 11.0, 30.0, 30.0],
         })
         with pytest.raises(ValueError) as excinfo:
-            assert_constant_within(df, keys=['Proteins', 'Condition'], cols=['Quantity'])
-        assert "'Proteins', 'Condition'" in str(excinfo.value)
+            assert_constant_within(df, keys=['Proteins', 'Run'], cols=['Quantity'])
+        assert "'Proteins', 'Run'" in str(excinfo.value)
         assert '1 group' in str(excinfo.value)
 
     def test_message_counts_all_violating_groups(self):
         df = pd.DataFrame({
             'Proteins': ['P1', 'P1', 'P2', 'P2'],
-            'Condition': ['C1', 'C1', 'C1', 'C1'],
+            'Run': ['C1', 'C1', 'C1', 'C1'],
             'Quantity': [10.0, 11.0, 30.0, 31.0],
         })
         with pytest.raises(ValueError) as excinfo:
-            assert_constant_within(df, keys=['Proteins', 'Condition'], cols=['Quantity'])
+            assert_constant_within(df, keys=['Proteins', 'Run'], cols=['Quantity'])
         assert '2 group' in str(excinfo.value)
 
 
@@ -185,7 +185,7 @@ class TestLoadSpectronautProteins:
 
     def test_long_report_with_repeated_precursor_rows(self, tmp_path):
         report = pd.DataFrame({
-            'R.Condition': ['C1', 'C1', 'C2', 'C2', 'C1', 'C2'],
+            'R.Label': ['C1', 'C1', 'C2', 'C2', 'C1', 'C2'],
             'PG.ProteinGroups': ['P1', 'P1', 'P1', 'P1', 'P2', 'P2'],
             'PG.Genes': ['G1', 'G1', 'G1', 'G1', 'G2', 'G2'],
             'EG.PrecursorId': ['A', 'B', 'A', 'B', 'C', 'C'],
@@ -222,7 +222,7 @@ class TestLoadSpectronautProteins:
 
     def test_missing_genes_falls_back_to_proteins(self, tmp_path):
         report = pd.DataFrame({
-            'R.Condition': ['C1', 'C2'],
+            'R.Label': ['C1', 'C2'],
             'PG.ProteinGroups': ['P1', 'P1'],
             'PG.Quantity': [10.0, 20.0],
         })
@@ -239,7 +239,7 @@ class TestLoadSpectronautProteins:
 
     def test_decoy_rows_are_dropped(self, tmp_path):
         report = pd.DataFrame({
-            'R.Condition': ['C1', 'C2', 'C1', 'C2'],
+            'R.Label': ['C1', 'C2', 'C1', 'C2'],
             'PG.ProteinGroups': ['P1', 'P1', 'DECOY', 'DECOY'],
             'PG.Genes': ['G1', 'G1', 'DECOY', 'DECOY'],
             'EG.IsDecoy': ['False', 'False', 'True', 'True'],
@@ -260,7 +260,7 @@ class TestLoadSpectronautProteins:
         # This test pins the ordering in the design: clean_rows must run before the constancy
         # assertion, or an elution-group decoy row makes a perfectly consistent protein group fail.
         report = pd.DataFrame({
-            'R.Condition': ['C1', 'C1', 'C2'],
+            'R.Label': ['C1', 'C1', 'C2'],
             'PG.ProteinGroups': ['P1', 'P1', 'P1'],
             'PG.Genes': ['G1', 'G1', 'G1'],
             'EG.IsDecoy': ['False', 'True', 'False'],
@@ -279,7 +279,7 @@ class TestLoadSpectronautProteins:
 
     def test_report_without_decoy_column_parses_unchanged(self, tmp_path):
         report = pd.DataFrame({
-            'R.Condition': ['C1', 'C2'],
+            'R.Label': ['C1', 'C2'],
             'PG.ProteinGroups': ['P1', 'P1'],
             'PG.Genes': ['G1', 'G1'],
             'PG.Quantity': [10.0, 20.0],
@@ -297,7 +297,7 @@ class TestLoadSpectronautProteins:
 
     def test_inconsistent_quantity_raises(self, tmp_path):
         report = pd.DataFrame({
-            'R.Condition': ['C1', 'C1', 'C2'],
+            'R.Label': ['C1', 'C1', 'C2'],
             'PG.ProteinGroups': ['P1', 'P1', 'P1'],
             'PG.Genes': ['G1', 'G1', 'G1'],
             'PG.Quantity': [10.0, 11.0, 20.0],
@@ -312,11 +312,11 @@ class TestLoadSpectronautProteins:
         path = self.write_report(tmp_path, report)
         with pytest.raises(ValueError) as excinfo:
             load_spectronaut_dia_proteins(path, '19.9', unique_cols=['Proteins'], first_cols=['Genes'], max_cols=['Raw C1'])
-        assert 'R.Condition' in str(excinfo.value)
+        assert 'R.Label' in str(excinfo.value)
         assert 'PG.ProteinGroups' in str(excinfo.value)
 
     def test_missing_required_column_raises(self, tmp_path):
-        report = pd.DataFrame({'R.Condition': ['C1'], 'PG.Genes': ['G1'], 'PG.Quantity': [10.0]})
+        report = pd.DataFrame({'R.Label': ['C1'], 'PG.Genes': ['G1'], 'PG.Quantity': [10.0]})
         path = self.write_report(tmp_path, report)
         with pytest.raises(ValueError) as excinfo:
             load_spectronaut_dia_proteins(path, '19.9', unique_cols=['Proteins'], first_cols=['Genes'], max_cols=['Raw C1'])
@@ -325,7 +325,7 @@ class TestLoadSpectronautProteins:
 
     def test_empty_condition_raises(self, tmp_path):
         report = pd.DataFrame({
-            'R.Condition': ['C1', None],
+            'R.Label': ['C1', None],
             'PG.ProteinGroups': ['P1', 'P1'],
             'PG.Genes': ['G1', 'G1'],
             'PG.Quantity': [10.0, 10.0],
@@ -339,7 +339,7 @@ class TestLoadSpectronautProteins:
         # A precursor-level report carries both roll-ups. Both share the canonical name 'Quantity',
         # so the other level's column must be dropped before the frame is renamed.
         report = pd.DataFrame({
-            'R.Condition': ['C1', 'C1', 'C2', 'C2'],
+            'R.Label': ['C1', 'C1', 'C2', 'C2'],
             'PG.ProteinGroups': ['P1', 'P1', 'P1', 'P1'],
             'PG.Genes': ['G1', 'G1', 'G1', 'G1'],
             'PEP.GroupingKey': ['AAAK', 'BBBK', 'AAAK', 'BBBK'],
@@ -366,7 +366,7 @@ class TestLoadSpectronautPeptides:
 
     def test_repeated_charges_collapse_to_one_row(self, tmp_path):
         report = pd.DataFrame({
-            'R.Condition': ['C1', 'C1', 'C2', 'C2'],
+            'R.Label': ['C1', 'C1', 'C2', 'C2'],
             'PG.ProteinGroups': ['P1', 'P1', 'P1', 'P1'],
             'PG.Genes': ['G1', 'G1', 'G1', 'G1'],
             'PEP.GroupingKey': ['_C[Carbamidomethyl (C)]PEPTIDER_'] * 4,
@@ -388,7 +388,7 @@ class TestLoadSpectronautPeptides:
 
     def test_stripped_grouping_key_parses(self, tmp_path):
         report = pd.DataFrame({
-            'R.Condition': ['C1', 'C2'],
+            'R.Label': ['C1', 'C2'],
             'PG.ProteinGroups': ['P1', 'P1'],
             'PG.Genes': ['G1', 'G1'],
             'PEP.GroupingKey': ['CPEPTIDER', 'CPEPTIDER'],
@@ -411,7 +411,7 @@ class TestLoadSpectronautPeptides:
         # PG.Quantity is a protein roll-up. Reading it as the peptide quantity would repeat one
         # protein measurement under every peptide of that protein, so it must fail loudly.
         report = pd.DataFrame({
-            'R.Condition': ['C1', 'C2'],
+            'R.Label': ['C1', 'C2'],
             'PG.ProteinGroups': ['P1', 'P1'],
             'PG.Genes': ['G1', 'G1'],
             'PEP.GroupingKey': ['CPEPTIDER', 'CPEPTIDER'],
@@ -428,7 +428,7 @@ class TestLoadSpectronautParquet:
     def test_parquet_long_report(self, tmp_path):
         pytest.importorskip('pyarrow')
         report = pd.DataFrame({
-            'R_Condition': ['C1', 'C1', 'C1', 'C2'],
+            'R_Label': ['C1', 'C1', 'C1', 'C2'],
             'PG_ProteinGroups': ['P1', 'P1', 'P2', 'P2'],
             'PG_Genes': ['G1', 'G1', 'G2', 'G2'],
             'EG_IsDecoy': [False, True, False, False],
@@ -461,7 +461,7 @@ class TestLoadSpectronautParquet:
 #     repeats over duplicated peptide rows - which is why the parser deduplicates instead of summing
 #
 
-SPECTRONAUT_LONG_COLUMNS = ['R.Condition', 'PG.Genes', 'PG.ProteinGroups', 'PG.Quantity',
+SPECTRONAUT_LONG_COLUMNS = ['R.Label', 'PG.Genes', 'PG.ProteinGroups', 'PG.Quantity',
                             'PEP.GroupingKey', 'PEP.GroupingKeyType', 'PEP.Quantity', 'EG.IsDecoy']
 
 # One protein group per block. The two P00761 rows in dose_0 are a real duplication: the report
@@ -710,3 +710,67 @@ class TestReportWithoutAConditionSetup:
             load_spectronaut_dia_proteins(path, '19.9', unique_cols=['Proteins'], first_cols=['Genes'],
                                           max_cols=['Raw Not Defined'])
         assert '1 group' in str(excinfo.value)
+
+
+class TestRunKey:
+    def test_condition_column_instead_of_label_raises(self, tmp_path):
+        # R.Condition is the likely mistake. It cannot stand in for R.Label: a condition may cover
+        # several runs, whose quantities genuinely differ, so keying on it would ask the parser to
+        # collapse measurements that are not duplicates.
+        report = pd.DataFrame({
+            'R.Condition': ['DMSO_vs_DMSO', 'DMSO_vs_DMSO'],
+            'PG.ProteinGroups': ['P1', 'P1'],
+            'PG.Genes': ['G1', 'G1'],
+            'PG.Quantity': [10.0, 20.0],
+        })
+        path = tmp_path / 'report.tsv'
+        report.to_csv(path, sep='\t', index=False)
+        with pytest.raises(ValueError) as excinfo:
+            load_spectronaut_dia_proteins(path, '19.9', unique_cols=['Proteins'], first_cols=['Genes'],
+                                          max_cols=['Raw DMSO_vs_DMSO'])
+        assert 'R.Condition' in str(excinfo.value)
+        assert 'R.Label' in str(excinfo.value)
+        assert 'per run' in str(excinfo.value)
+
+    def test_several_runs_of_one_condition_stay_separate(self, tmp_path):
+        # Three replicates of one condition are three runs with three quantities. Keyed on the run
+        # they become three experiments; keyed on the condition they would have collapsed into one
+        # and tripped the constancy assertion.
+        report = pd.DataFrame({
+            'R.Label': ['DMSO_rep1', 'DMSO_rep2', 'DMSO_rep3'],
+            'PG.Genes': ['USP36', 'USP36', 'USP36'],
+            'PG.ProteinGroups': ['A0A075B784;Q9P275'] * 3,
+            'PG.Quantity': [446.7162780761719, 512.0, 388.5],
+        })
+        path = tmp_path / 'report.tsv'
+        report.to_csv(path, sep='\t', index=False)
+        result = load_spectronaut_dia_proteins(path, '19.9', unique_cols=['Proteins'], first_cols=['Genes'],
+                                               max_cols=['Raw DMSO_rep1', 'Raw DMSO_rep2', 'Raw DMSO_rep3'])
+        expected_result = pd.DataFrame({
+            'Proteins': ['A0A075B784;Q9P275'],
+            'N duplicates': [1],
+            'Genes': ['USP36'],
+            'Raw DMSO_rep1': [446.7162780761719],
+            'Raw DMSO_rep2': [512.0],
+            'Raw DMSO_rep3': [388.5],
+        })
+        assert result.equals(expected_result)
+
+    def test_a_long_and_a_pivot_export_name_the_same_experiments(self, tmp_path):
+        # R.Label is the string a pivot report puts in its headers, so neither export needs the
+        # condition setup adjusted for the two to agree.
+        run = 'DMSO_vs_DMSO_plate1_rep3'
+        long_report = pd.DataFrame({
+            'R.Label': [run],
+            'PG.Genes': ['USP36'],
+            'PG.ProteinGroups': ['A0A075B784;Q9P275'],
+            'PG.Quantity': [446.7162780761719],
+        })
+        long_path = tmp_path / 'long.tsv'
+        long_report.to_csv(long_path, sep='\t', index=False)
+        pivot_path = write_pivot(tmp_path / 'pivot.tsv',
+                                 ['PG.Genes', 'PG.ProteinGroups', f'[1] {run}.PG.Quantity'],
+                                 [['USP36', 'A0A075B784;Q9P275', 446.7162780761719]])
+        kwargs = dict(unique_cols=['Proteins'], first_cols=['Genes'], max_cols=[f'Raw {run}'])
+        assert load_spectronaut_dia_proteins(long_path, '19.9', **kwargs).equals(
+               load_spectronaut_dia_proteins(pivot_path, '19.9', **kwargs))
