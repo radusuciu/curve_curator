@@ -56,6 +56,10 @@ We have registred CurveCurator in PyPi (https://pypi.org/project/curve-curator/)
 ```sh
 (CurveCuratorEnv)$ pip install curve-curator
 ```
+Reading Spectronaut reports in Parquet format needs the optional `parquet` dependency group:
+```sh
+(CurveCuratorEnv)$ pip install curve-curator[parquet]
+```
 Verify installation by seeing that the program exists. If everything was done correctly, you will see the help output of CurveCurator (as shown below) and you are done with the installation.
 ```sh
 (CurveCuratorEnv)$ CurveCurator -h
