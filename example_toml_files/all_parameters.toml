@@ -29,7 +29,7 @@ dose_unit = 'M'								# The base unit of the doses.
 control_experiment = [1]						# [<id>] The experiment id(s) that are the control(s) to which ratios are calculated. If multiple controls exist, do [<id>, <id>, ..].
 measurement_type= 'OTHER'						# The measurement type <LFQ|TMT|DIA|OTHER>.
 data_type = 'OTHER'							# The data type <PEPTIDE|PROTEIN|OTHER>.
-search_engine = 'OTHER'							# The search engine <MAXQUANT|DIANN|PD|MSFRAGGER|OTHER>.
+search_engine = 'OTHER'							# The search engine <MAXQUANT|DIANN|PD|MSFRAGGER|SPECTRONAUT|OTHER>.
 search_engine_version = 'X.X.X.X'					# The search engine version.
 
 
