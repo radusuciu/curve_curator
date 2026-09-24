@@ -1,3 +1,5 @@
+import re
+
 import numpy as np
 import pandas as pd
 
@@ -37,16 +39,70 @@ class SpectronautMap:
         return df
 
     @staticmethod
-    def rename_quantity_columns(cols):
+    def rename_quantity_columns(cols, experiments=None, parquet=None):
         """
         Renames a pivot report's quantity headers to 'Raw <run>'.
 
         A pivot report carries one quantity column per run, headed '[1] <run>.PG.Quantity' in the
         csv dialect and '[1]_<run>_PG_Quantity' in the parquet one. The leading '[n] ' index is
-        optional. Anything else, the long report's plain 'PG.Quantity' included, passes through.
+        optional. Parquet replaces dots and spaces in the run with underscores, so configured
+        experiment names are used to restore the original spelling. Anything else, the long
+        report's plain 'PG.Quantity' included, passes through.
+
+        ``parquet=None`` accepts either dialect and is useful when mapping columns in isolation.
+        Loaders pass the report format explicitly so TSV matching remains exact.
         """
-        cols = cols.str.replace(r'^(?:\[\d+\]\s*)?(?P<run>.+)\.(?:PG|PEP)\.Quantity$', r'Raw \g<run>', regex=True)
-        return cols.str.replace(r'^(?:\[\d+\]_)?(?P<run>.+)_(?:PG|PEP)_Quantity$', r'Raw \g<run>', regex=True)
+        csv_pattern = re.compile(r'^(?:\[\d+\]\s*)?(?P<run>.+)\.(?:PG|PEP)\.Quantity$')
+        parquet_pattern = re.compile(r'^(?:\[\d+\]_)?(?P<run>.+)_(?:PG|PEP)_Quantity$')
+        renamed = []
+        parquet_headers = []
+
+        for col in cols:
+            value = str(col)
+            match = csv_pattern.match(value) if parquet is not True else None
+            if match:
+                renamed.append(f"Raw {match.group('run')}")
+                continue
+
+            match = parquet_pattern.match(value) if parquet is not False else None
+            if match:
+                token = match.group('run')
+                renamed.append(f'Raw {token}')
+                parquet_headers.append((len(renamed) - 1, value, token))
+                continue
+
+            renamed.append(col)
+
+        if not parquet_headers or experiments is None:
+            return pd.Index(renamed)
+
+        configured = {}
+        for experiment in experiments:
+            experiment = str(experiment)
+            configured.setdefault(_to_parquet_name(experiment), []).append(experiment)
+
+        configured_collisions = {token: names for token, names in configured.items() if len(names) > 1}
+        if configured_collisions:
+            details = '; '.join(f"{names} -> {token!r}" for token, names in configured_collisions.items())
+            raise ValueError(
+                'The configured Spectronaut experiment names are ambiguous in Parquet headers: '
+                f'{details}. Dots and spaces are both replaced with underscores.')
+
+        reported = {}
+        for _, header, token in parquet_headers:
+            reported.setdefault(token, []).append(header)
+        report_collisions = {token: headers for token, headers in reported.items() if len(headers) > 1}
+        if report_collisions:
+            details = '; '.join(f"{headers} -> {token!r}" for token, headers in report_collisions.items())
+            raise ValueError(
+                'The Spectronaut Parquet quantity headers are ambiguous after normalization: '
+                f'{details}. The report must contain one distinct quantity header per run.')
+
+        configured = {token: names[0] for token, names in configured.items()}
+        for position, _, token in parquet_headers:
+            if token in configured:
+                renamed[position] = f'Raw {configured[token]}'
+        return pd.Index(renamed)
 
     @staticmethod
     def is_long_report(df):
