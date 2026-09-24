@@ -376,7 +376,7 @@ _SPECTRONAUT_OPTIONAL = {
 _SPECTRONAUT_RUN = 'R.Label'
 _SPECTRONAUT_CONDITION = 'R.Condition'
 
-PARQUET_HINT = 'Reading .parquet reports requires pyarrow. Please install it with: pip install curve_curator[parquet]'
+PARQUET_HINT = 'Reading .parquet reports requires pyarrow. Please install it with: pip install curve-curator[parquet]'
 
 
 def _is_parquet(path):
@@ -425,7 +425,8 @@ def _read_report(path, columns=None):
     return pd.read_csv(path, sep='\t', usecols=columns, low_memory=False)
 
 
-def _load_spectronaut(path, version, level, unique_cols, sum_cols, first_cols, max_cols, min_cols, concat_cols):
+def _load_spectronaut(path, version, level, unique_cols, sum_cols, first_cols, max_cols, min_cols, concat_cols,
+                      experiments=None):
     """
     Shared body of the two Spectronaut loaders. Reads a long or a pivot report in either the csv or
     the parquet column dialect and returns one row per identity.
@@ -445,7 +446,9 @@ def _load_spectronaut(path, version, level, unique_cols, sum_cols, first_cols, m
     header = _read_report_header(path)
     header = header[[c for c in header.columns if not _is_quantity_of(c, other_level)]]
     source_names = list(header.columns)
-    quantity_cols = list(Mapper.rename_quantity_columns(header.columns))
+    is_parquet = _is_parquet(path)
+    quantity_cols = list(Mapper.rename_quantity_columns(header.columns, experiments=experiments,
+                                                        parquet=is_parquet))
     header.columns = Mapper.rename_general_columns(header.columns)
     canonical = list(header.columns)
     is_long = Mapper.is_long_report(header)
@@ -483,7 +486,7 @@ def _load_spectronaut(path, version, level, unique_cols, sum_cols, first_cols, m
     df = _read_report(path, columns=source_cols)
     df.columns = Mapper.rename_general_columns(df.columns)
     if not is_long:
-        df.columns = Mapper.rename_quantity_columns(df.columns)
+        df.columns = Mapper.rename_quantity_columns(df.columns, experiments=experiments, parquet=is_parquet)
     df = Mapper.map_indicator_values(df)
 
     # Decoys go before any quantity is read. EG.IsDecoy flags an elution group, while the quantity
@@ -517,12 +520,16 @@ def _load_spectronaut(path, version, level, unique_cols, sum_cols, first_cols, m
     return df
 
 
-def load_spectronaut_dia_proteins(path, version, unique_cols, sum_cols=[], first_cols=[], max_cols=[], min_cols=[], concat_cols=[]):
-    return _load_spectronaut(path, version, 'PROTEIN', unique_cols, sum_cols, first_cols, max_cols, min_cols, concat_cols)
+def load_spectronaut_dia_proteins(path, version, unique_cols, sum_cols=[], first_cols=[], max_cols=[], min_cols=[], concat_cols=[],
+                                  experiments=None):
+    return _load_spectronaut(path, version, 'PROTEIN', unique_cols, sum_cols, first_cols, max_cols, min_cols, concat_cols,
+                             experiments=experiments)
 
 
-def load_spectronaut_dia_peptides(path, version, unique_cols, sum_cols=[], first_cols=[], max_cols=[], min_cols=[], concat_cols=[]):
-    return _load_spectronaut(path, version, 'PEPTIDE', unique_cols, sum_cols, first_cols, max_cols, min_cols, concat_cols)
+def load_spectronaut_dia_peptides(path, version, unique_cols, sum_cols=[], first_cols=[], max_cols=[], min_cols=[], concat_cols=[],
+                                  experiments=None):
+    return _load_spectronaut(path, version, 'PEPTIDE', unique_cols, sum_cols, first_cols, max_cols, min_cols, concat_cols,
+                             experiments=experiments)
 
 
 #
@@ -601,7 +608,7 @@ def load(config):
         # max_cols, not sum_cols: Spectronaut reports an already aggregated quantity, and the loader
         # has asserted it is constant within the protein group, so the max is that value.
         df = load_spectronaut_dia_proteins(path, search_engine_version, unique_cols=unique_cols, first_cols=first_cols,
-                                           max_cols=raw_cols)
+                                           max_cols=raw_cols, experiments=experiments)
         if 'Genes' not in df.columns:
             df['Genes'] = df['Proteins']
         if 'Name' not in df.columns:
@@ -612,7 +619,7 @@ def load(config):
         first_cols = ['Proteins', 'Genes']
         # max_cols, not sum_cols: see the protein branch above.
         df = load_spectronaut_dia_peptides(path, search_engine_version, unique_cols=unique_cols, first_cols=first_cols,
-                                           max_cols=raw_cols)
+                                           max_cols=raw_cols, experiments=experiments)
         if 'Genes' not in df.columns:
             df['Genes'] = df['Proteins']
         if 'Name' not in df.columns:

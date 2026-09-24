@@ -87,6 +87,21 @@ class TestRenameQuantityColumns:
         expected_result = pd.Index(['PG_Quantity', 'PEP_Quantity', 'R_Label'])
         assert SpectronautMap.rename_quantity_columns(cols).equals(expected_result)
 
+    def test_parquet_runs_restore_spaces_dots_and_underscores_from_experiments(self):
+        # Literal headers from Spectronaut's Parquet dialect. Do not derive these with the
+        # production normalizer: the fixture needs to catch a change in that transformation.
+        cols = pd.Index(['[1]_Cond_A_1_PG_Quantity', '[2]_Cond_A_2_PG_Quantity'])
+        experiments = ['Cond A.1', 'Cond_A.2']
+        expected_result = pd.Index(['Raw Cond A.1', 'Raw Cond_A.2'])
+        assert SpectronautMap.rename_quantity_columns(
+            cols, experiments=experiments, parquet=True).equals(expected_result)
+
+    def test_tsv_run_matching_stays_exact(self):
+        cols = pd.Index(['[1] Cond_A_1.PG.Quantity'])
+        result = SpectronautMap.rename_quantity_columns(
+            cols, experiments=['Cond A.1'], parquet=False)
+        assert result.equals(pd.Index(['Raw Cond_A_1']))
+
 
 class TestRestructureLongReport:
     def test_long_to_wide(self):
@@ -774,3 +789,123 @@ class TestRunKey:
         kwargs = dict(unique_cols=['Proteins'], first_cols=['Genes'], max_cols=[f'Raw {run}'])
         assert load_spectronaut_dia_proteins(long_path, '19.9', **kwargs).equals(
                load_spectronaut_dia_proteins(pivot_path, '19.9', **kwargs))
+
+
+class TestParquetRunNamesThroughDispatch:
+    run = 'Cond A.1'
+
+    @staticmethod
+    def config(path, data_type, experiments=None):
+        return {
+            'Paths': {'input_file': path},
+            'Experiment': {
+                'measurement_type': 'DIA',
+                'data_type': data_type,
+                'search_engine': 'SPECTRONAUT',
+                'search_engine_version': '19.9',
+                'experiments': experiments or ['Cond A.1'],
+            },
+        }
+
+    @pytest.mark.parametrize('data_type', ['PROTEIN', 'PEPTIDE'])
+    def test_all_four_report_forms_return_the_same_complete_frame(self, tmp_path, data_type):
+        pytest.importorskip('pyarrow')
+
+        if data_type == 'PROTEIN':
+            long_tsv = pd.DataFrame({
+                'R.Label': [self.run],
+                'PG.Genes': ['GENE1'],
+                'PG.ProteinGroups': ['P1'],
+                'PG.Quantity': [123.5],
+            })
+            pivot_tsv = pd.DataFrame({
+                'PG.Genes': ['GENE1'],
+                'PG.ProteinGroups': ['P1'],
+                '[1] Cond A.1.PG.Quantity': [123.5],
+            })
+            # These headers are copied literally from the Parquet dialect.
+            long_parquet = pd.DataFrame({
+                'R_Label': [self.run],
+                'PG_Genes': ['GENE1'],
+                'PG_ProteinGroups': ['P1'],
+                'PG_Quantity': [123.5],
+            })
+            pivot_parquet = pd.DataFrame({
+                'PG_Genes': ['GENE1'],
+                'PG_ProteinGroups': ['P1'],
+                '[1]_Cond_A_1_PG_Quantity': [123.5],
+            })
+        else:
+            long_tsv = pd.DataFrame({
+                'R.Label': [self.run],
+                'PG.Genes': ['GENE1'],
+                'PG.ProteinGroups': ['P1'],
+                'PEP.GroupingKey': ['PEPTIDEK'],
+                'PEP.Quantity': [45.25],
+            })
+            pivot_tsv = pd.DataFrame({
+                'PG.Genes': ['GENE1'],
+                'PG.ProteinGroups': ['P1'],
+                'PEP.GroupingKey': ['PEPTIDEK'],
+                '[1] Cond A.1.PEP.Quantity': [45.25],
+            })
+            long_parquet = pd.DataFrame({
+                'R_Label': [self.run],
+                'PG_Genes': ['GENE1'],
+                'PG_ProteinGroups': ['P1'],
+                'PEP_GroupingKey': ['PEPTIDEK'],
+                'PEP_Quantity': [45.25],
+            })
+            pivot_parquet = pd.DataFrame({
+                'PG_Genes': ['GENE1'],
+                'PG_ProteinGroups': ['P1'],
+                'PEP_GroupingKey': ['PEPTIDEK'],
+                '[1]_Cond_A_1_PEP_Quantity': [45.25],
+            })
+
+        paths = {
+            'long TSV': tmp_path / f'{data_type.lower()}-long.tsv',
+            'pivot TSV': tmp_path / f'{data_type.lower()}-pivot.tsv',
+            'long Parquet': tmp_path / f'{data_type.lower()}-long.parquet',
+            'pivot Parquet': tmp_path / f'{data_type.lower()}-pivot.parquet',
+        }
+        long_tsv.to_csv(paths['long TSV'], sep='\t', index=False)
+        pivot_tsv.to_csv(paths['pivot TSV'], sep='\t', index=False)
+        long_parquet.to_parquet(paths['long Parquet'], index=False)
+        pivot_parquet.to_parquet(paths['pivot Parquet'], index=False)
+
+        results = {name: load(self.config(path, data_type)) for name, path in paths.items()}
+        reference = results['long TSV']
+        for name, result in results.items():
+            assert result.equals(reference), f'{name} did not match the long TSV frame'
+            assert f'Raw {self.run}' in result.columns
+
+    def test_configured_names_that_normalize_to_the_same_header_raise(self, tmp_path):
+        pytest.importorskip('pyarrow')
+        report = pd.DataFrame({
+            'PG_Genes': ['GENE1'],
+            'PG_ProteinGroups': ['P1'],
+            '[1]_Cond_A_PG_Quantity': [123.5],
+        })
+        path = tmp_path / 'configured-collision.parquet'
+        report.to_parquet(path, index=False)
+
+        with pytest.raises(ValueError, match='configured.*ambiguous') as excinfo:
+            load(self.config(path, 'PROTEIN', experiments=['Cond A', 'Cond_A']))
+        assert 'Cond_A' in str(excinfo.value)
+
+    def test_configured_run_that_collides_with_an_extra_report_run_raises(self, tmp_path):
+        pytest.importorskip('pyarrow')
+        report = pd.DataFrame({
+            'PG_Genes': ['GENE1'],
+            'PG_ProteinGroups': ['P1'],
+            '[1]_Cond_A_PG_Quantity': [123.5],
+            '[2]_Cond_A_PG_Quantity': [456.0],
+        })
+        path = tmp_path / 'report-collision.parquet'
+        report.to_parquet(path, index=False)
+
+        with pytest.raises(ValueError, match='quantity headers.*ambiguous') as excinfo:
+            load(self.config(path, 'PROTEIN', experiments=['Cond A']))
+        assert '[1]_Cond_A_PG_Quantity' in str(excinfo.value)
+        assert '[2]_Cond_A_PG_Quantity' in str(excinfo.value)
