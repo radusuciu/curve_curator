@@ -10,7 +10,7 @@ The data sets originate from the following papers:
 
 # General comments
 
-CurveCurator always expects tab ("\t") separated files as input. If you use a different file encoding it will raise an error when reading the data.
+CurveCurator normally expects tab ("\t") separated files as input. Spectronaut reports are the exception: they can be tab-separated TSV or Parquet files. If you use another format or encoding, CurveCurator will raise an error when reading the data.
 
 CurveCurator has different parser modes that enable convenient data import. In the following, we will describe the different parser modes and how you correctly match your data file to your parameter.toml file. Many combinations of measurement_type, data_type, and search_engine are possible. We will only highlight a few combinations but many more are possible. In case you get a `NotImplementedError`, please let us know. We will implement the specific parser mode for you then.
 
@@ -102,3 +102,22 @@ The data structure should look like this:
 - For DIANN, it outputs raw file names as columns. Please rename manually to Raw 1..N.
 - For PD, the order of the files is important. PD normally labels the output experiments with F1..N. These numbers will be parsed by the CurveCurator. Please make sure that toml file has the same N to dose correspondences.
 - For MSFRAGGER, name your TMT channels or LFQ experiments Raw_1...N manually. The peptide-based analysis expects the (combined_)ion.tsv file. The protein-based analysis expects the (combined_)protein.tsv file.
+
+## Spectronaut DIA reports
+
+Spectronaut is supported for the `(PROTEIN, DIA, SPECTRONAUT)` and `(PEPTIDE, DIA, SPECTRONAUT)` parser combinations. Export either a normal long report or a run-pivot report. CurveCurator reads both TSV and Parquet exports; Parquet support requires `pip install curve-curator[parquet]`.
+
+For a long report, include these columns:
+
+| Analysis level | Required columns |
+| -------------- | ---------------- |
+| Protein | `R.Label`, `PG.ProteinGroups`, `PG.Quantity` |
+| Peptide | `R.Label`, `PG.ProteinGroups`, `PEP.GroupingKey`, `PEP.Quantity` |
+
+`R.Label` is the experiment identity because Spectronaut reports quantities per run. Set the TOML `experiments` entries to the run labels, including punctuation and spaces exactly as exported. `R.Condition` cannot replace `R.Label`, because one condition may contain several runs.
+
+For a pivot report, include the same identity columns and one quantity column per run. Protein quantity headers end in `<run>.PG.Quantity`; peptide quantity headers end in `<run>.PEP.Quantity`. An optional numeric prefix such as `[1] ` is accepted. `R.Label` is not needed because the run is carried by each quantity header.
+
+`PG.Quantity` is used only for protein analysis and `PEP.Quantity` only for peptide analysis. `PG.Genes` is optional; when it is absent, CurveCurator uses `PG.ProteinGroups` as the gene annotation. If `EG.IsDecoy` is present, rows marked as decoys are removed before quantities are deduplicated.
+
+Spectronaut replaces dots and spaces with underscores in Parquet pivot headers. CurveCurator matches those normalized headers to the TOML `experiments` array and restores the configured run spelling in output columns. Names that become indistinguishable after normalization, such as `Cond A` and `Cond_A`, are rejected with an error; use unambiguous run labels in that case. TSV pivot headers and long-report `R.Label` values are matched exactly.
