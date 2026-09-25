@@ -143,7 +143,7 @@ def assert_constant_within(df, keys, cols):
     n_violations = int((n_values > 1).any(axis=1).sum())
     if n_violations > 0:
         msg = (f'{n_violations} group(s) defined by {list(keys)} contain more than one distinct value in {list(cols)}. '
-               f'The report grain is finer than the level being parsed, or the quantity column is not the aggregated one.')
+               f"The report contains more detailed rows than expected, or the quantity column hasn't been aggregated.")
         raise ValueError(msg)
 
 
