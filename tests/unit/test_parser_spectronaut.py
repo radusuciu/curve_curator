@@ -44,8 +44,6 @@ class TestToParquetName:
         assert _to_parquet_name('R.Condition') == 'R_Condition'
 
     def test_every_dot_and_space_is_replaced(self):
-        # '[1] CondA.PG.Quantity' is what a pivot report's csv dialect carries, and the parquet
-        # writer turns it into '[1]_CondA_PG_Quantity' - both dots go, not only the first.
         assert _to_parquet_name('[1] CondA.PG.Quantity') == '[1]_CondA_PG_Quantity'
 
 
@@ -71,8 +69,6 @@ class TestRenameQuantityColumns:
         assert SpectronautMap.rename_quantity_columns(cols).equals(expected_result)
 
     def test_parquet_dialect_pivot_header(self):
-        # Verbatim from a Spectronaut 19.9 pivot report written with --writeParquet. The parquet
-        # writer replaces every dot and every space, so the header carries no dots at all.
         cols = pd.Index(['PG_Genes', 'PG_ProteinGroups', '[1]_DMSO_vs_DMSO_plate1_rep3_PG_Quantity'])
         expected_result = pd.Index(['PG_Genes', 'PG_ProteinGroups', 'Raw DMSO_vs_DMSO_plate1_rep3'])
         assert SpectronautMap.rename_quantity_columns(cols).equals(expected_result)
@@ -88,8 +84,7 @@ class TestRenameQuantityColumns:
         assert SpectronautMap.rename_quantity_columns(cols).equals(expected_result)
 
     def test_parquet_runs_restore_spaces_dots_and_underscores_from_experiments(self):
-        # Literal headers from Spectronaut's Parquet dialect. Do not derive these with the
-        # production normalizer: the fixture needs to catch a change in that transformation.
+        # Keep literal headers here to test the production normalizer independently.
         cols = pd.Index(['[1]_Cond_A_1_PG_Quantity', '[2]_Cond_A_2_PG_Quantity'])
         experiments = ['Cond A.1', 'Cond_A.2']
         expected_result = pd.Index(['Raw Cond A.1', 'Raw Cond_A.2'])
@@ -120,7 +115,7 @@ class TestRestructureLongReport:
         result = SpectronautMap.restructure_long_report(df, index=['Proteins'], value_col='Quantity')
         assert result.equals(expected_result)
 
-    def test_missing_condition_becomes_nan(self):
+    def test_missing_run_becomes_nan(self):
         df = pd.DataFrame({
             'Proteins': ['P1', 'P1', 'P2'],
             'Genes': ['G1', 'G1', 'G2'],
@@ -272,8 +267,6 @@ class TestLoadSpectronautProteins:
         assert result.equals(expected_result)
 
     def test_decoy_row_with_divergent_quantity_does_not_trip_the_assertion(self, tmp_path):
-        # This test pins the ordering in the design: clean_rows must run before the constancy
-        # assertion, or an elution-group decoy row makes a perfectly consistent protein group fail.
         report = pd.DataFrame({
             'R.Label': ['C1', 'C1', 'C2'],
             'PG.ProteinGroups': ['P1', 'P1', 'P1'],
@@ -338,7 +331,7 @@ class TestLoadSpectronautProteins:
         assert 'Proteins' in str(excinfo.value)
         assert 'PG.ProteinGroups' in str(excinfo.value)
 
-    def test_empty_condition_raises(self, tmp_path):
+    def test_empty_run_label_raises(self, tmp_path):
         report = pd.DataFrame({
             'R.Label': ['C1', None],
             'PG.ProteinGroups': ['P1', 'P1'],
@@ -351,8 +344,6 @@ class TestLoadSpectronautProteins:
         assert 'condition setup' in str(excinfo.value)
 
     def test_peptide_quantity_column_is_ignored(self, tmp_path):
-        # A precursor-level report carries both roll-ups. Both share the canonical name 'Quantity',
-        # so the other level's column must be dropped before the frame is renamed.
         report = pd.DataFrame({
             'R.Label': ['C1', 'C1', 'C2', 'C2'],
             'PG.ProteinGroups': ['P1', 'P1', 'P1', 'P1'],
@@ -423,8 +414,6 @@ class TestLoadSpectronautPeptides:
         assert result.equals(expected_result)
 
     def test_protein_quantity_alone_raises(self, tmp_path):
-        # PG.Quantity is a protein roll-up. Reading it as the peptide quantity would repeat one
-        # protein measurement under every peptide of that protein, so it must fail loudly.
         report = pd.DataFrame({
             'R.Label': ['C1', 'C2'],
             'PG.ProteinGroups': ['P1', 'P1'],
@@ -463,24 +452,11 @@ class TestLoadSpectronautParquet:
 
 
 #
-# End-to-end tests over whole reports.
-#
-# Every header below is verbatim from a Spectronaut 19.9.250324 export produced by re-reporting a
-# real .sne. The rows are a handful of real ones, cut down and given a second condition so that a
-# dose series exists to fit. What the real export established, and these fixtures preserve:
-#
-#   - the csv dialect uses dots ('PG.Quantity'), the parquet writer replaces every dot and space
-#   - a pivot report carries one quantity column per run, headed '[n] <run>.PG.Quantity'
-#   - EG.IsDecoy is a 'True'/'False' string in tsv and a real boolean in parquet
-#   - PG.Quantity repeats unchanged over every peptide row of its protein group, and PEP.Quantity
-#     repeats over duplicated peptide rows - which is why the parser deduplicates instead of summing
-#
+# Headers and rows are trimmed from Spectronaut 19.9.250324 exports.
 
 SPECTRONAUT_LONG_COLUMNS = ['R.Label', 'PG.Genes', 'PG.ProteinGroups', 'PG.Quantity',
                             'PEP.GroupingKey', 'PEP.GroupingKeyType', 'PEP.Quantity', 'EG.IsDecoy']
 
-# One protein group per block. The two P00761 rows in dose_0 are a real duplication: the report
-# repeats a peptide row with an identical PEP.Quantity.
 SPECTRONAUT_LONG_ROWS = [
     ['dose_0', 'USP36', 'A0A075B784;Q9P275', 446.7162780761719, 'ALELFVK', 'Stripped Sequence', 672.8201293945312, 'False'],
     ['dose_0', 'USP36', 'A0A075B784;Q9P275', 446.7162780761719, 'EGQAQLPAVR', 'Stripped Sequence', 539.1575927734375, 'False'],
@@ -522,7 +498,7 @@ def write_long_tsv(path):
 def write_long_parquet(path):
     df = pd.DataFrame(SPECTRONAUT_LONG_ROWS, columns=SPECTRONAUT_LONG_COLUMNS)
     df.columns = [_to_parquet_name(c) for c in df.columns]
-    df['EG_IsDecoy'] = df['EG_IsDecoy'] == 'True'      # parquet carries a real boolean
+    df['EG_IsDecoy'] = df['EG_IsDecoy'] == 'True'
     df.to_parquet(path, index=False)
     return path
 
@@ -567,10 +543,6 @@ class TestLongReportEndToEnd:
         assert tsv.equals(parquet)
 
 
-# A pivot report is Spectronaut's own roll-up of the same experiment: one row per identity, one
-# quantity column per run, and no decoy or duplicate rows left to drop. The headers are the shape a
-# real 19.9 pivot export writes - '[1] <run>.PG.Quantity', or the same with every dot and space
-# replaced when written as parquet.
 SPECTRONAUT_PROTEIN_PIVOT_COLUMNS = ['PG.Genes', 'PG.ProteinGroups', '[1] dose_0.PG.Quantity', '[2] dose_1.PG.Quantity']
 SPECTRONAUT_PROTEIN_PIVOT_ROWS = [
     ['USP36', 'A0A075B784;Q9P275', 446.7162780761719, 893.4325561523438],
@@ -630,7 +602,6 @@ class TestPivotReportEndToEnd:
         assert result.equals(EXPECTED_PEPTIDES)
 
     def test_pivot_and_long_reports_of_one_experiment_agree(self, tmp_path):
-        # The same experiment exported both ways must fit the same numbers.
         long_report = load_spectronaut_dia_proteins(write_long_tsv(tmp_path / 'long.tsv'), '19.9',
                                                     unique_cols=['Proteins'], first_cols=['Genes'],
                                                     max_cols=['Raw dose_0', 'Raw dose_1'])
@@ -640,8 +611,6 @@ class TestPivotReportEndToEnd:
         assert long_report.equals(pivot)
 
     def test_pivot_header_without_a_condition_setup_uses_the_run_name(self, tmp_path):
-        # Spectronaut heads a pivot column with the run label, so a report exported without a
-        # condition setup names its columns after the runs. The experiments array has to match.
         columns = ['PG.Genes', 'PG.ProteinGroups', '[1] DMSO_vs_DMSO_plate1_rep3.PG.Quantity']
         path = write_pivot(tmp_path / 'pivot.tsv', columns, [['USP36', 'A0A075B784;Q9P275', 446.7162780761719]])
         result = load_spectronaut_dia_proteins(path, '19.9', unique_cols=['Proteins'], first_cols=['Genes'],
@@ -690,18 +659,13 @@ class TestLoadDispatchEndToEnd:
         assert result.equals(expected_result)
 
     def test_experiment_missing_from_the_report_exits(self, tmp_path):
-        # An experiments name with no matching run is caught by verify_columns_exist inside
-        # aggregate_duplicates, which prints the missing column and exits. No Spectronaut-specific
-        # check is needed for it.
         path = write_long_tsv(tmp_path / 'report.tsv')
         config = self.config(path, 'PROTEIN')
         config['Experiment']['experiments'] = ['dose_0', 'dose_1', 'dose_2']
         with pytest.raises(SystemExit):
             load(config)
 
-    def test_extra_conditions_in_the_report_are_ignored(self, tmp_path):
-        # Documented upstream behaviour: there may be more names in the data file than in the
-        # experiments array. dose_1 is simply not selected here.
+    def test_extra_runs_in_the_report_are_ignored(self, tmp_path):
         path = write_long_tsv(tmp_path / 'report.tsv')
         config = self.config(path, 'PROTEIN')
         config['Experiment']['experiments'] = ['dose_0']
@@ -710,11 +674,8 @@ class TestLoadDispatchEndToEnd:
         assert result['Raw dose_0'].tolist() == [446.7162780761719, 429.8607482910156, 159657.140625]
 
 
-class TestReportWithoutAConditionSetup:
-    def test_undefined_conditions_raise(self, tmp_path):
-        # Spectronaut writes 'Not Defined' into R.Condition for every run of an analysis that had no
-        # condition setup. Every run then looks like one condition carrying many different
-        # quantities, which is exactly the misjudged grain assert_constant_within exists to catch.
+class TestInvalidRunLabels:
+    def test_reused_run_label_with_different_quantities_raises(self, tmp_path):
         report = pd.DataFrame([
             ['Not Defined', 'USP36', 'A0A075B784;Q9P275', 446.7162780761719, 'ALELFVK', 'Stripped Sequence', 672.8201293945312, 'False'],
             ['Not Defined', 'USP36', 'A0A075B784;Q9P275', 893.4325561523438, 'ALELFVK', 'Stripped Sequence', 1345.6402587890625, 'False'],
@@ -729,9 +690,6 @@ class TestReportWithoutAConditionSetup:
 
 class TestRunKey:
     def test_condition_column_instead_of_label_raises(self, tmp_path):
-        # R.Condition is the likely mistake. It cannot stand in for R.Label: a condition may cover
-        # several runs, whose quantities genuinely differ, so keying on it would ask the parser to
-        # collapse measurements that are not duplicates.
         report = pd.DataFrame({
             'R.Condition': ['DMSO_vs_DMSO', 'DMSO_vs_DMSO'],
             'PG.ProteinGroups': ['P1', 'P1'],
@@ -748,9 +706,6 @@ class TestRunKey:
         assert 'per run' in str(excinfo.value)
 
     def test_several_runs_of_one_condition_stay_separate(self, tmp_path):
-        # Three replicates of one condition are three runs with three quantities. Keyed on the run
-        # they become three experiments; keyed on the condition they would have collapsed into one
-        # and tripped the constancy assertion.
         report = pd.DataFrame({
             'R.Label': ['DMSO_rep1', 'DMSO_rep2', 'DMSO_rep3'],
             'PG.Genes': ['USP36', 'USP36', 'USP36'],
@@ -772,8 +727,6 @@ class TestRunKey:
         assert result.equals(expected_result)
 
     def test_a_long_and_a_pivot_export_name_the_same_experiments(self, tmp_path):
-        # R.Label is the string a pivot report puts in its headers, so neither export needs the
-        # condition setup adjusted for the two to agree.
         run = 'DMSO_vs_DMSO_plate1_rep3'
         long_report = pd.DataFrame({
             'R.Label': [run],
@@ -823,7 +776,6 @@ class TestParquetRunNamesThroughDispatch:
                 'PG.ProteinGroups': ['P1'],
                 '[1] Cond A.1.PG.Quantity': [123.5],
             })
-            # These headers are copied literally from the Parquet dialect.
             long_parquet = pd.DataFrame({
                 'R_Label': [self.run],
                 'PG_Genes': ['GENE1'],

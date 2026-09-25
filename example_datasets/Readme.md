@@ -105,7 +105,7 @@ The data structure should look like this:
 
 ## Spectronaut DIA reports
 
-Spectronaut is supported for the `(DIA, PROTEIN, SPECTRONAUT)` and `(DIA, PEPTIDE, SPECTRONAUT)` parser combinations. Export either a normal long report or a run-pivot report. CurveCurator reads both TSV and Parquet exports; Parquet support requires `pip install curve-curator[parquet]`.
+Spectronaut is supported for the `(PROTEIN, DIA, SPECTRONAUT)` and `(PEPTIDE, DIA, SPECTRONAUT)` parser combinations. Export either a normal long report or a run-pivot report. CurveCurator reads both TSV and Parquet exports; Parquet support requires `pip install curve-curator[parquet]`.
 
 For a long report, include these columns:
 

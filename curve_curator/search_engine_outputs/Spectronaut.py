@@ -5,19 +5,7 @@ import pandas as pd
 
 
 def _to_parquet_name(col):
-    """
-    Spectronaut's parquet writer derives each parquet column name from the csv one by replacing
-    every dot and every space with an underscore. 'PG.Quantity' becomes 'PG_Quantity', and a pivot
-    report's '[1] CondA.PG.Quantity' becomes '[1]_CondA_PG_Quantity'.
-
-    Parameters
-    ----------
-    col : str
-
-    Returns
-    -------
-    col : str
-    """
+    """Convert a Spectronaut CSV column name to its Parquet form."""
     return col.replace('.', '_').replace(' ', '_')
 
 
@@ -40,18 +28,7 @@ class SpectronautMap:
 
     @staticmethod
     def rename_quantity_columns(cols, experiments=None, parquet=None):
-        """
-        Renames a pivot report's quantity headers to 'Raw <run>'.
-
-        A pivot report carries one quantity column per run, headed '[1] <run>.PG.Quantity' in the
-        csv dialect and '[1]_<run>_PG_Quantity' in the parquet one. The leading '[n] ' index is
-        optional. Parquet replaces dots and spaces in the run with underscores, so configured
-        experiment names are used to restore the original spelling. Anything else, the long
-        report's plain 'PG.Quantity' included, passes through.
-
-        ``parquet=None`` accepts either dialect and is useful when mapping columns in isolation.
-        Loaders pass the report format explicitly so TSV matching remains exact.
-        """
+        """Rename pivot quantity headers to ``Raw <run>`` in either dialect."""
         csv_pattern = re.compile(r'^(?:\[\d+\]\s*)?(?P<run>.+)\.(?:PG|PEP)\.Quantity$')
         parquet_pattern = re.compile(r'^(?:\[\d+\]_)?(?P<run>.+)_(?:PG|PEP)_Quantity$')
         renamed = []
@@ -110,30 +87,7 @@ class SpectronautMap:
 
     @staticmethod
     def restructure_long_report(df, index, value_col):
-        """
-        Pivots a long report into one 'Raw <run>' column per run in the report.
-
-        Spectronaut has already rolled the quantity up, so a group holds one value repeated over
-        the report's rows and aggfunc='first' is a lookup rather than an aggregation.
-        assert_constant_within is what guarantees that.
-
-        Only the identity columns go into the pivot index, because pandas drops rows whose group
-        key is NaN and annotations such as Genes are legitimately empty. They are merged back on
-        the identity instead, taking the first row of each group.
-
-        Parameters
-        ----------
-        df : pd.DataFrame
-            long report with a 'Run' column
-        index : array-like
-            column names that identify the level being parsed
-        value_col : str
-            name of the quantity column
-
-        Returns
-        -------
-        df : pd.DataFrame
-        """
+        """Pivot a long report into one ``Raw <run>`` column per run."""
         quantities = pd.pivot_table(data=df, values=value_col, index=index, columns='Run', aggfunc='first', dropna=False)
         quantities = quantities.rename(columns=lambda c: f'Raw {c}')
         quantities.columns.name = None
@@ -143,8 +97,7 @@ class SpectronautMap:
         df.reset_index(drop=True, inplace=True)
         return df
 
-    # Both quantity columns map to the same canonical name. The loaders read an explicit column
-    # list, so only the one belonging to the level being parsed is ever present in the frame.
+    # The loader selects one level before both quantities map to the same name.
     _col_map = {
         'R.Label': 'Run',
         'PG.ProteinGroups': 'Proteins',
@@ -160,8 +113,7 @@ class SpectronautMap:
 
     _indicator_cols = ['Decoy']
 
-    # Spectronaut writes real booleans in parquet and 'True' / 'False' strings in tsv. Anything
-    # else, missing values included, is not a decoy.
+    # Parquet uses booleans; TSV uses strings.
     _indicator_map = {
         True: True,
         'True': True,

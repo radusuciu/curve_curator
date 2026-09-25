@@ -138,27 +138,7 @@ def aggregate_duplicates(df, keys, sum_cols=[], first_cols=[], max_cols=[], min_
 
 
 def assert_constant_within(df, keys, cols):
-    """
-    Asserts that each group defined by the key columns holds at most one distinct value in cols.
-
-    Some search engines report an already aggregated quantity repeated over the rows of the level
-    below it. Such a value must be deduplicated rather than summed or averaged, and this check is
-    what makes a misjudged grain fail loudly instead of silently scaling the quantity by the number
-    of rows the report happens to carry. Missing values are not counted as a distinct value.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        input data
-    keys : array-like
-        column names defining the groups
-    cols : array-like
-        column names whose values must be constant within each group
-
-    Returns
-    -------
-    None
-    """
+    """Raise if a column has multiple distinct values within a group."""
     n_values = df.groupby(keys, dropna=False)[cols].nunique()
     n_violations = int((n_values > 1).any(axis=1).sum())
     if n_violations > 0:
@@ -370,9 +350,7 @@ _SPECTRONAUT_OPTIONAL = {
     'PEPTIDE': {'Genes': 'PG.Genes', 'Decoy': 'EG.IsDecoy', 'Grouping type': 'PEP.GroupingKeyType'},
 }
 
-# Spectronaut's quantity is rolled up per run, so the run is what becomes one 'Raw <x>' column.
-# R.Label carries the run label the condition setup assigned, and it is the same string a pivot
-# report puts in its column headers, so both report shapes name their experiments identically.
+# Spectronaut quantities are rolled up by run.
 _SPECTRONAUT_RUN = 'R.Label'
 _SPECTRONAUT_CONDITION = 'R.Condition'
 
@@ -393,20 +371,13 @@ def _assert_pyarrow_installed():
 
 
 def _is_quantity_of(col, level):
-    """
-    Checks if a column is the quantity column of a given level, in either dialect and in a long or
-    a pivot header. PG.Quantity and PEP.Quantity share the canonical name 'Quantity', so a report
-    carrying both must be reduced to the one level before anything is renamed.
-    """
+    """Check for a level-specific quantity column in either report dialect."""
     source = _SPECTRONAUT_QUANTITY[level]
     return str(col).endswith(source) or str(col).endswith(_to_parquet_name(source))
 
 
 def _read_report_header(path):
-    """
-    Reads only the column names of a report. Both readers are cheap, so the dialect and the report
-    shape can be resolved before the body is read with an explicit column list.
-    """
+    """Read only the report's column names."""
     if _is_parquet(path):
         _assert_pyarrow_installed()
         import pyarrow.parquet as pq
@@ -415,10 +386,7 @@ def _read_report_header(path):
 
 
 def _read_report(path, columns=None):
-    """
-    Reads a report, restricted to the given columns. For a precursor-level report this is the
-    difference between a few hundred MB and a few MB of pandas memory.
-    """
+    """Read the selected report columns."""
     if _is_parquet(path):
         _assert_pyarrow_installed()
         return pd.read_parquet(path, columns=columns)
@@ -427,22 +395,13 @@ def _read_report(path, columns=None):
 
 def _load_spectronaut(path, version, level, unique_cols, sum_cols, first_cols, max_cols, min_cols, concat_cols,
                       experiments=None):
-    """
-    Shared body of the two Spectronaut loaders. Reads a long or a pivot report in either the csv or
-    the parquet column dialect and returns one row per identity.
-
-    Spectronaut has already aggregated the quantity, so this deduplicates rather than aggregates:
-    decoys are dropped first so that the level being parsed sees target evidence only, the quantity
-    is asserted constant within its identity, and only then is it collapsed.
-    """
+    """Load a long or pivot Spectronaut report and return one row per identity."""
     Mapper = SpectronautMap(version)
     identity = _SPECTRONAUT_IDENTITY[level]
     optional = _SPECTRONAUT_OPTIONAL[level]
     other_level = 'PEPTIDE' if level == 'PROTEIN' else 'PROTEIN'
 
-    # Resolve the dialect and the report shape from the header alone. A report commonly carries the
-    # roll-up of both levels, and both are called 'Quantity' once renamed, so the other level's
-    # column is dropped by its source name first.
+    # Drop the other level's quantity before both quantities are renamed to 'Quantity'.
     header = _read_report_header(path)
     header = header[[c for c in header.columns if not _is_quantity_of(c, other_level)]]
     source_names = list(header.columns)
@@ -454,9 +413,6 @@ def _load_spectronaut(path, version, level, unique_cols, sum_cols, first_cols, m
     is_long = Mapper.is_long_report(header)
     is_pivot = any(str(c).startswith('Raw ') for c in quantity_cols)
 
-    # A report exported with R.Condition instead of R.Label is the likely mistake, and it is not a
-    # column that can stand in: a condition may span several runs, and the quantity differs between
-    # them, so keying on it would ask the parser to collapse measurements that are not duplicates.
     if not is_long and not is_pivot and _SPECTRONAUT_CONDITION in source_names:
         raise ValueError(
             f'The Spectronaut report has a "{_SPECTRONAUT_CONDITION}" column but no "{_SPECTRONAUT_RUN}" column. '
@@ -477,7 +433,6 @@ def _load_spectronaut(path, version, level, unique_cols, sum_cols, first_cols, m
             raise ValueError(f'The Spectronaut report has no "{name}" column. '
                              f'Please add "{source}" to the report schema in Spectronaut.')
 
-    # Read only the columns that are actually needed.
     wanted = {'Run'} | set(required) | set(optional)
     source_cols = [c for c, name in zip(source_names, canonical) if name in wanted]
     if not is_long:
@@ -489,12 +444,9 @@ def _load_spectronaut(path, version, level, unique_cols, sum_cols, first_cols, m
         df.columns = Mapper.rename_quantity_columns(df.columns, experiments=experiments, parquet=is_parquet)
     df = Mapper.map_indicator_values(df)
 
-    # Decoys go before any quantity is read. EG.IsDecoy flags an elution group, while the quantity
-    # is an aggregate over target evidence, so a decoy row left in place would make a consistent
-    # protein group fail the constancy check below.
+    # Remove decoys before validating rolled-up quantities.
     df = clean_rows(df)
 
-    # Guarantee the annotation column exists, so first_cols can name it unconditionally.
     if 'Genes' not in df.columns:
         df['Genes'] = df['Proteins']
 
@@ -605,8 +557,7 @@ def load(config):
     elif (measurement_type == 'DIA') and (search_engine == 'SPECTRONAUT') and (data_type == 'PROTEIN'):
         unique_cols = ['Proteins']
         first_cols = ['Genes']
-        # max_cols, not sum_cols: Spectronaut reports an already aggregated quantity, and the loader
-        # has asserted it is constant within the protein group, so the max is that value.
+        # Quantities are already aggregated and validated by the loader.
         df = load_spectronaut_dia_proteins(path, search_engine_version, unique_cols=unique_cols, first_cols=first_cols,
                                            max_cols=raw_cols, experiments=experiments)
         if 'Genes' not in df.columns:
@@ -617,7 +568,6 @@ def load(config):
     elif (measurement_type == 'DIA') and (search_engine == 'SPECTRONAUT') and (data_type == 'PEPTIDE'):
         unique_cols = ['Modified sequence']
         first_cols = ['Proteins', 'Genes']
-        # max_cols, not sum_cols: see the protein branch above.
         df = load_spectronaut_dia_peptides(path, search_engine_version, unique_cols=unique_cols, first_cols=first_cols,
                                            max_cols=raw_cols, experiments=experiments)
         if 'Genes' not in df.columns:
