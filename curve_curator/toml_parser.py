@@ -17,7 +17,7 @@ from . import user_interface as ui
 #
 REFERENCE = {
     'Meta': ['id', 'condition', 'description', 'treatment_time'],
-    'Experiment': ['experiments', 'doses', 'dose_scale', 'dose_unit', 'control_experiment', 'measurement_type', 'data_type', 'search_engine', 'search_engine_version'],
+    'Experiment': ['experiments', 'doses', 'dose_scale', 'dose_unit', 'control_experiment', 'measurement_type', 'data_type', 'search_engine', 'search_engine_version', 'quantity_column'],
     'Paths': ['input_file', 'curves_file', 'decoys_file', 'fdr_file', 'normalization_file', 'mad_file', 'dashboard'],
     'Processing': ['available_cores', 'max_missing', 'max_imputation', 'imputation', 'imputation_pct', 'normalization', 'ratio_range'],
     'Curve Fit': ['front', 'slope', 'back', 'weights', 'interpolation', 'type', 'speed', 'max_iterations', 'control_fold_change', 'interpolation'],

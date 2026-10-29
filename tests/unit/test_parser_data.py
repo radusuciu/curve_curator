@@ -25,6 +25,15 @@ class TestCleanModifiedSequence:
         expected_result = pd.Series(['(ac)ABCS(ph)T(ph)Y(ph)', 'DEFMS(ph)T(ph)'])
         assert clean_modified_sequence(mod_seq).equals(expected_result)
 
+    def test_spectronaut_modifications(self):
+        mod_seq = pd.Series([
+            '_C[Carbamidomethyl (C)]PEPTIDEM[Oxidation (M)]K_',
+            '_[Acetyl (Protein N-term)]ABCS[Phospho (STY)]K[GG (K)]_',
+            '_PEPTIDEK_',
+        ])
+        expected_result = pd.Series(['CPEPTIDEMK', '(ac)ABCS(ph)K(ub)', 'PEPTIDEK'])
+        assert clean_modified_sequence(mod_seq).equals(expected_result)
+
 
 class TestCleanRows:
     def test_empty_imput(self):

@@ -13,7 +13,7 @@ CurveCurator toml files have up to 7 `[sections]`. Obligatory ***`keys`*** are i
 	- ***`control_experiment`*** specifies the experiment name(s) that contains the control (= 0.0 dose(s)). If there is a single control, specify the name. If multiple controls exist in the data, specify an array of controls, e.g. [1, 2, 3] for three control replicates with names 1, 2, and 3. Importantly, the names must match the id names in the experiments array.
   	- `measurement_type` (proteomic data) can be 'LFQ', 'TMT', 'DIA', 'OTHER'.
 	- `data_type` (proteomic data) can be 'PEPTIDE', 'PROTEIN', 'OTHER'.
-	- `search_engine` (proteomic data) can be 'MAXQUANT', 'DIANN', 'PD', 'MSFRAGGER', 'OTHER'.
+	- `search_engine` (proteomic data) can be 'MAXQUANT', 'DIANN', 'PD', 'MSFRAGGER', 'SPECTRONAUT', 'OTHER'.
 	- `search_engine_version` (proteomic data) specifies the used version.
 
 - `['Paths']` contains all path information that is relevant for the IO of the pipeline. Please note that all paths are relative to the toml file, which is currently executed. As a best practice, we recommend storing everything in one folder next to each other, resulting in the most simple relative paths possible. The paths are provided as follows: `path = './<path>/<file_name>.<extension>'`. The only path that you always need to specify is the input_file containing the raw data. All other paths serve to optionally rename the files or put them to another location than the default location next to the toml file.
