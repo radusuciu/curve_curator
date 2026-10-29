@@ -625,6 +625,54 @@ class TestPivotReportEndToEnd:
 
 
 class TestLoadDispatchEndToEnd:
+    @pytest.mark.parametrize('parquet', [False, True], ids=['tsv', 'parquet'])
+    @pytest.mark.parametrize('reverse_rows', [False, True])
+    def test_sparse_peptide_pivot_preserves_measurements(self, tmp_path, parquet, reverse_rows):
+        report = pd.DataFrame({
+            'PG.ProteinGroups': ['P1'] * 6,
+            'PEP.GroupingKey': ['_PEPM[Oxidation (M)]K_'] * 2 + ['_PEPMK_', '_MISSINGK_'] + ['_ZEROK_'] * 2,
+            'dose_0.PEP.Quantity': [np.nan, 0., 5., np.nan, np.nan, 0.],
+            'dose_1.PEP.Quantity': [20., np.nan, 30., np.nan, 7., np.nan],
+        })
+        if reverse_rows:
+            report = report.iloc[::-1]
+        path = tmp_path / ('pivot.parquet' if parquet else 'pivot.tsv')
+        if parquet:
+            pytest.importorskip('pyarrow')
+            report.rename(columns=lambda col: col.replace('.', '_')).to_parquet(path, index=False)
+        else:
+            report.to_csv(path, sep='\t', index=False)
+
+        result = load(self.config(path, 'PEPTIDE')).set_index('Modified sequence')
+
+        assert result.loc['PEPMK', ['Raw dose_0', 'Raw dose_1']].tolist() == [5., 50.]
+        assert result.loc['ZEROK', ['Raw dose_0', 'Raw dose_1']].tolist() == [0., 7.]
+        assert result.loc['MISSINGK', ['Raw dose_0', 'Raw dose_1']].isna().all()
+
+    @pytest.mark.parametrize('data_type,identity,quantity', [
+        ('PROTEIN', 'PG.ProteinGroups', 'PG.Quantity'),
+        ('PEPTIDE', 'PEP.GroupingKey', 'PEP.Quantity'),
+        ('PEPTIDE', 'PTM.CollapseKey', 'PTM.Quantity'),
+    ])
+    def test_numeric_tsv_run_labels_preserve_spelling(self, tmp_path, data_type, identity, quantity):
+        runs = ['01', '1', '1.0']
+        report = pd.DataFrame({
+            'R.Label': runs,
+            'PG.ProteinGroups': ['P1'] * 3,
+            identity: ['P1' if data_type == 'PROTEIN' else 'PEPTIDEK'] * 3,
+            quantity: [10., 20., 30.],
+        })
+        path = tmp_path / 'report.tsv'
+        report.to_csv(path, sep='\t', index=False)
+        config = self.config(path, data_type)
+        config['Experiment']['experiments'] = runs
+        if quantity == 'PTM.Quantity':
+            config['Experiment']['quantity_column'] = quantity
+
+        result = load(config)
+
+        assert result[[f'Raw {run}' for run in runs]].values.tolist() == [[10., 20., 30.]]
+
     @pytest.mark.parametrize('pivot', [False, True], ids=['long', 'pivot'])
     def test_normalized_peptide_collisions_sum_quantities(self, tmp_path, pivot):
         report = pd.DataFrame({

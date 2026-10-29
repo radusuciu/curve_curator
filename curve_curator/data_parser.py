@@ -399,7 +399,7 @@ def _read_report(path, columns=None):
     if _is_parquet(path):
         _assert_pyarrow_installed()
         return pd.read_parquet(path, columns=columns)
-    return pd.read_csv(path, sep='\t', usecols=columns, low_memory=False)
+    return pd.read_csv(path, sep='\t', usecols=columns, dtype={_SPECTRONAUT_RUN: str}, low_memory=False)
 
 
 def _load_spectronaut(path, version, level, unique_cols, sum_cols, first_cols, max_cols, min_cols, concat_cols,
@@ -485,7 +485,7 @@ def _load_spectronaut(path, version, level, unique_cols, sum_cols, first_cols, m
                             for col in df.columns if col not in unique_cols and col != 'Decoy'}
             df = df.groupby(unique_cols).agg(aggregations).reset_index()
         elif level == 'PEPTIDE':
-            df = df.drop_duplicates(subset=unique_cols).copy()
+            df = df.groupby(unique_cols, as_index=False).first()
 
     if level == 'PTM':
         missing = [col for col in raw_cols if col not in df.columns]
