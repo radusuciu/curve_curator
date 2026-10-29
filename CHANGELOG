@@ -1,3 +1,14 @@
+v0.7.0
+- Add Spectronaut DIA protein, peptide, and PTM site report support, including long and pivot reports in TSV and optional Parquet formats
+- Preserve Spectronaut run labels, sparse measurements, and peptide quantities during normalization
+- Add generic peptide and protein parsers and standardize generic data import
+- Improve responsiveness and interruption handling during parallel curve fitting and quality control (#46)
+- Fix imputation tracking for experiment names containing spaces (#47) and recognize imputation_pct in TOML validation
+- Improve random mode configuration handling and avoid writing an input file
+- Expand input format, configuration, and API documentation (#48)
+- Allow pytest 9 and add GitHub Actions tests for Python 3.11, 3.12, and 3.13
+- Include source distributions in PyPI releases (#49)
+
 v0.6.0
 - Improve the dashboard (#30, #32, #36, #41)
 - Improve UI with toml parsing, automatic issue detection, and better batch file logic (#44)
