@@ -627,6 +627,11 @@ def dashboard(df, title, out_path, drug_doses, drug_unit, cols_ratio, model, f_s
     modseq_input = TextInput(value="", margin=margin, width=500, visible=visibility)
     modseq_search_button = Button(label="Select Sequence", button_type="default", margin=margin, width=150, visible=visibility)
 
+    visibility = 'Grouping key' in df.columns
+    grouping_input = TextInput(value="", margin=margin, width=500, visible=visibility)
+    grouping_search_button = Button(label="Select Grouping Key", button_type="default", margin=margin, width=170,
+                                   visible=visibility)
+
     # Gene Filter
     visibility = 'Genes' in df.columns
     gene_input = TextInput(value="", margin=margin, width=300, visible=visibility)
@@ -890,6 +895,12 @@ def dashboard(df, title, out_path, drug_doses, drug_unit, cols_ratio, model, f_s
     table_cols = [
         dict(field='Name', title="Name", width=300),
         dict(field='Modified sequence', title="Modified Sequence", width=300),
+        dict(field='Grouping key', title="Grouping Key", width=300),
+        dict(field='Grouping type', title="Grouping Type", width=120),
+        dict(field='Modification', title="Modification", width=150),
+        dict(field='Site amino acid', title="Site Amino Acid", width=100),
+        dict(field='Site location', title="Site Location", width=100),
+        dict(field='Multiplicity', title="Multiplicity", width=100),
         dict(field='Genes', title="Gene(s)", width=200),
         dict(field='Proteins', title="Uniprot ID(s)", width=200),
         dict(field='Peptides', title="N Peptides", width=100),
@@ -970,6 +981,12 @@ def dashboard(df, title, out_path, drug_doses, drug_unit, cols_ratio, model, f_s
                                                         case_sensitive=case_senitive_checkbox,
                                                         selection_view=view_selected_curves),
                                               code=js_code))
+
+    grouping_search_button.js_on_click(CustomJS(args=dict(source=source,
+                                                          text_input=grouping_input,
+                                                          case_sensitive=case_senitive_checkbox,
+                                                          selection_view=view_selected_curves),
+                                                code=get_js_table_selection_code('Grouping key')))
 
     # Select Data points from the volcano based on modified sequence
     js_code = get_js_table_selection_code('Genes')
@@ -1064,6 +1081,7 @@ def dashboard(df, title, out_path, drug_doses, drug_unit, cols_ratio, model, f_s
                    [selection_title],
                    [pec50_slider, score_slider, signal_slider],
                    [name_input, name_search_button, modseq_input, modseq_search_button, gene_input, gene_search_button, case_senitive_checkbox],
+                   [grouping_input, grouping_search_button],
                    [data_table]])
 
     # output to HTML file
@@ -1130,6 +1148,9 @@ def render(df, config):
 
     # Add columns if they are present in the data frame
     optional_cols = {'Name': str, 'Modified sequence': str, 'Genes': str, 'Proteins': str, 'Peptides': int, 'Imputation Position': str}
+    optional_cols.update({col: str for col in ['Grouping key', 'Grouping type', 'Modification', 'Site amino acid',
+                                              'Site location', 'Multiplicity', 'Protein groups', 'Supporting peptides',
+                                              'Stripped sequence']})
     optional_cols = {col: col_type for col, col_type in optional_cols.items() if col in df.columns}
     df_cols.extend(optional_cols.keys())
 

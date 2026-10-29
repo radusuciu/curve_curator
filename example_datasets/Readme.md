@@ -121,3 +121,56 @@ For a pivot report, include the same identity columns and one quantity column pe
 `PG.Quantity` is used only for protein analysis and `PEP.Quantity` only for peptide analysis. `PG.Genes` is optional; when it is absent, CurveCurator uses `PG.ProteinGroups` as the gene annotation. If `EG.IsDecoy` is present, rows marked as decoys are removed before quantities are deduplicated.
 
 Spectronaut replaces dots and spaces with underscores in Parquet pivot headers. CurveCurator matches those normalized headers to the TOML `experiments` array and restores the configured run spelling in output columns. Names that become indistinguishable after normalization, such as `Cond A` and `Cond_A`, are rejected with an error; use unambiguous run labels in that case. TSV pivot headers and long-report `R.Label` values are matched exactly.
+
+### Spectronaut PTM site reports
+
+Use the existing peptide parser mode and select a PTM quantity in your TOML:
+
+```toml
+[Experiment]
+data_type = 'PEPTIDE'
+measurement_type = 'DIA'
+search_engine = 'SPECTRONAUT'
+search_engine_version = '19.9'
+quantity_column = 'PTM.Quantity'
+experiments = ['Run A.1', 'Run B.2'] # Match your exported run labels.
+# Keep your usual doses, control_experiment, dose_scale, and dose_unit settings.
+```
+
+Export the PTM site report from a Spectronaut analysis with the PTM workflow enabled.
+For a long report, include `PTM.CollapseKey`, `R.Label`, and the selected quantity.
+For a pivot report, include `PTM.CollapseKey` and one selected quantity column per run,
+such as `[1] Run A.1.PTM.Quantity`. TSV and Parquet are supported directly;
+no column renaming or intermediate conversion is needed.
+
+`quantity_column` must explicitly select one of:
+
+| Setting | Response |
+| --- | --- |
+| `PTM.Quantity` | Site abundance |
+| `PTM.QuantityPerProtein` | Site abundance normalized to protein input by Spectronaut |
+| `PTM.Stoichiometry` | Spectronaut site stoichiometry |
+
+Only the selected response is loaded, even if the report also contains peptide,
+protein, or other PTM quantities. An unavailable response raises an error instead
+of falling back to another quantity. Omitting `quantity_column` retains ordinary
+`PEP.Quantity` peptide import; a PTM site report requires the explicit setting.
+
+Each exported `PTM.CollapseKey` becomes one curve's `Grouping key` and `Name`,
+preserved verbatim. Different site keys and multiplicities remain separate.
+Repeated quantities must agree within each site/run and are retained once;
+they are never summed across supporting peptide or charge rows. Decoys marked
+by `EG.IsDecoy` are removed before these checks. Zeros and missing values retain
+the normal CurveCurator processing behavior.
+
+Optional site annotations are `PTM.ProteinId`, `PTM.ModificationTitle`,
+`PTM.SiteAA`, `PTM.SiteLocation`, and `PTM.Multiplicity`. Conflicting values
+within a collapse key raise an error. Optional `PG.Genes`, `PG.ProteinGroups`,
+`PTM.Group`, `PEP.StrippedSequence`, and `EG.ModifiedSequence` are retained as
+sorted, unique annotations. Sequence annotations are kept as exported and do not
+determine curve identity. All annotations are saved in the curves output; the
+dashboard includes site fields and a **Select Grouping Key** search.
+
+Curve fitting still uses CurveCurator's usual control ratios. Review your
+normalization and imputation settings, especially for quantities already
+normalized by Spectronaut; this importer does not change those settings.

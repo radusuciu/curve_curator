@@ -338,17 +338,32 @@ def load_fragger_lqf_proteins(path, version, unique_cols, sum_cols=[], first_col
 _SPECTRONAUT_IDENTITY = {
     'PROTEIN': {'Proteins': 'PG.ProteinGroups'},
     'PEPTIDE': {'Modified sequence': 'PEP.GroupingKey', 'Proteins': 'PG.ProteinGroups'},
+    'PTM': {'Grouping key': 'PTM.CollapseKey'},
 }
 
 _SPECTRONAUT_QUANTITY = {
     'PROTEIN': 'PG.Quantity',
     'PEPTIDE': 'PEP.Quantity',
+    'PTM': 'PTM.Quantity',
 }
 
 _SPECTRONAUT_OPTIONAL = {
     'PROTEIN': {'Genes': 'PG.Genes', 'Decoy': 'EG.IsDecoy'},
     'PEPTIDE': {'Genes': 'PG.Genes', 'Decoy': 'EG.IsDecoy', 'Grouping type': 'PEP.GroupingKeyType'},
+    'PTM': {
+        'Proteins': 'PTM.ProteinId', 'Protein groups': 'PG.ProteinGroups', 'Genes': 'PG.Genes',
+        'Modification': 'PTM.ModificationTitle', 'Site amino acid': 'PTM.SiteAA',
+        'Site location': 'PTM.SiteLocation', 'Multiplicity': 'PTM.Multiplicity',
+        'Supporting peptides': 'PTM.Group', 'Stripped sequence': 'PEP.StrippedSequence',
+        'Modified sequence': 'EG.ModifiedSequence', 'Decoy': 'EG.IsDecoy',
+    },
 }
+
+_SPECTRONAUT_CONSTANT_ANNOTATIONS = {
+    'PTM': ['Proteins', 'Modification', 'Site amino acid', 'Site location', 'Multiplicity'],
+}
+
+_SPECTRONAUT_PTM_QUANTITIES = {'PTM.Quantity', 'PTM.QuantityPerProtein', 'PTM.Stoichiometry'}
 
 # Spectronaut quantities are rolled up by run.
 _SPECTRONAUT_RUN = 'R.Label'
@@ -370,12 +385,6 @@ def _assert_pyarrow_installed():
         raise ImportError(PARQUET_HINT)
 
 
-def _is_quantity_of(col, level):
-    """Check for a level-specific quantity column in either report dialect."""
-    source = _SPECTRONAUT_QUANTITY[level]
-    return str(col).endswith(source) or str(col).endswith(_to_parquet_name(source))
-
-
 def _read_report_header(path):
     """Read only the report's column names."""
     if _is_parquet(path):
@@ -394,23 +403,25 @@ def _read_report(path, columns=None):
 
 
 def _load_spectronaut(path, version, level, unique_cols, sum_cols, first_cols, max_cols, min_cols, concat_cols,
-                      experiments=None):
+                      experiments=None, quantity_column=None):
     """Load a long or pivot Spectronaut report and return one row per identity."""
     Mapper = SpectronautMap(version)
     identity = _SPECTRONAUT_IDENTITY[level]
     optional = _SPECTRONAUT_OPTIONAL[level]
-    other_level = 'PEPTIDE' if level == 'PROTEIN' else 'PROTEIN'
+    quantity_column = quantity_column or _SPECTRONAUT_QUANTITY[level]
+    raw_cols = [f'Raw {e}' for e in experiments] if experiments is not None else None
 
-    # Drop the other level's quantity before both quantities are renamed to 'Quantity'.
-    header = _read_report_header(path)
-    header = header[[c for c in header.columns if not _is_quantity_of(c, other_level)]]
-    source_names = list(header.columns)
+    # Map only the requested roll-up, even if other quantities and identities are exported.
+    source_names = list(_read_report_header(path).columns)
     is_parquet = _is_parquet(path)
-    quantity_cols = list(Mapper.rename_quantity_columns(header.columns, experiments=experiments,
-                                                        parquet=is_parquet))
-    header.columns = Mapper.rename_general_columns(header.columns)
-    canonical = list(header.columns)
-    is_long = Mapper.is_long_report(header)
+    column_map = {source: name for name, source in {**identity, **optional}.items()}
+    column_map.update({_SPECTRONAUT_RUN: 'Run', quantity_column: 'Quantity'})
+    if is_parquet:
+        column_map = {_to_parquet_name(source): name for source, name in column_map.items()}
+    quantity_cols = list(Mapper.rename_quantity_columns(pd.Index(source_names), experiments=experiments,
+                                                        parquet=is_parquet, quantity_column=quantity_column))
+    canonical = [column_map.get(source, renamed) for source, renamed in zip(source_names, quantity_cols)]
+    is_long = 'Run' in canonical
     is_pivot = any(str(c).startswith('Raw ') for c in quantity_cols)
 
     if not is_long and not is_pivot and _SPECTRONAUT_CONDITION in source_names:
@@ -422,33 +433,37 @@ def _load_spectronaut(path, version, level, unique_cols, sum_cols, first_cols, m
     if not is_long and not is_pivot:
         raise ValueError(
             'The Spectronaut report is neither a long report (no "R.Label" column) nor a pivot report '
-            '(no "<run>.PG.Quantity" or "<run>.PEP.Quantity" columns). '
+            f'(no "<run>.{quantity_column}" columns). It requires "R.Label" and "{quantity_column}" '
+            'or matching pivot quantity columns. '
             f'The report contains: {source_names}.')
 
     required = dict(identity)
     if is_long:
-        required['Quantity'] = _SPECTRONAUT_QUANTITY[level]
+        required['Quantity'] = quantity_column
     for name, source in required.items():
         if name not in canonical:
             raise ValueError(f'The Spectronaut report has no "{name}" column. '
-                             f'Please add "{source}" to the report schema in Spectronaut.')
+                             f'It requires "{source}" in the report schema in Spectronaut.')
 
     wanted = {'Run'} | set(required) | set(optional)
-    source_cols = [c for c, name in zip(source_names, canonical) if name in wanted]
-    if not is_long:
-        source_cols += [c for c, name in zip(source_names, quantity_cols) if str(name).startswith('Raw ')]
+    selected = {source: name for source, name in zip(source_names, canonical)
+                if (source in column_map and name in wanted)
+                or (not is_long and str(name).startswith('Raw ')
+                    and (level != 'PTM' or name in raw_cols))}
 
-    df = _read_report(path, columns=source_cols)
-    df.columns = Mapper.rename_general_columns(df.columns)
-    if not is_long:
-        df.columns = Mapper.rename_quantity_columns(df.columns, experiments=experiments, parquet=is_parquet)
-    df = Mapper.map_indicator_values(df)
+    df = _read_report(path, columns=list(selected)).rename(columns=selected)
+    df = clean_rows(Mapper.map_indicator_values(df))
 
-    # Remove decoys before validating rolled-up quantities.
-    df = clean_rows(df)
-
-    if 'Genes' not in df.columns:
+    if level != 'PTM' and 'Genes' not in df.columns:
         df['Genes'] = df['Proteins']
+
+    if level == 'PTM':
+        for col in unique_cols + (['Run'] if is_long else []):
+            if df[col].isna().any() or df[col].astype(str).str.strip().eq('').any():
+                raise ValueError(f'The Spectronaut PTM report contains empty "{col}" values.')
+    constant_cols = [col for col in _SPECTRONAUT_CONSTANT_ANNOTATIONS.get(level, []) if col in df.columns]
+    assert_constant_within(df, keys=unique_cols, cols=constant_cols)
+    annotation_agg = _spectronaut_unique_annotations if level == 'PTM' else None
 
     if 'Grouping type' in df.columns:
         grains = sorted(set(df['Grouping type'].dropna()))
@@ -460,11 +475,28 @@ def _load_spectronaut(path, version, level, unique_cols, sum_cols, first_cols, m
             raise ValueError(f'The "{_SPECTRONAUT_RUN}" column contains empty values. Please give every run a label '
                              'in the Spectronaut condition setup and export the report again.')
         assert_constant_within(df, keys=unique_cols + ['Run'], cols=['Quantity'])
-        df = Mapper.restructure_long_report(df, index=unique_cols, value_col='Quantity')
+        df = Mapper.restructure_long_report(df, index=unique_cols, value_col='Quantity',
+                                            annotation_agg=annotation_agg)
     else:
-        assert_constant_within(df, keys=unique_cols, cols=[c for c in df.columns if str(c).startswith('Raw ')])
-        if level == 'PEPTIDE':
+        quantity_cols = [c for c in df.columns if str(c).startswith('Raw ')]
+        assert_constant_within(df, keys=unique_cols, cols=quantity_cols)
+        if annotation_agg is not None:
+            aggregations = {col: 'max' if col in quantity_cols else annotation_agg
+                            for col in df.columns if col not in unique_cols and col != 'Decoy'}
+            df = df.groupby(unique_cols).agg(aggregations).reset_index()
+        elif level == 'PEPTIDE':
             df = df.drop_duplicates(subset=unique_cols).copy()
+
+    if level == 'PTM':
+        missing = [col for col in raw_cols if col not in df.columns]
+        if missing:
+            raise ValueError(f'The Spectronaut PTM report is missing configured runs: {missing}.')
+        df = df.drop(columns=['Decoy'], errors='ignore')
+        annotation_cols = [col for col in df.columns if not str(col).startswith('Raw ')]
+        df = df[annotation_cols + raw_cols]
+        df['Grouping type'] = 'PTM Site'
+        df['Name'] = df['Grouping key']
+        return df
 
     if level == 'PEPTIDE':
         df['Modified sequence'] = clean_modified_sequence(df['Modified sequence'])
@@ -484,6 +516,21 @@ def load_spectronaut_dia_peptides(path, version, unique_cols, sum_cols=[], first
                                   experiments=None):
     return _load_spectronaut(path, version, 'PEPTIDE', unique_cols, sum_cols, first_cols, max_cols, min_cols, concat_cols,
                              experiments=experiments)
+
+
+def _spectronaut_unique_annotations(values):
+    """Keep distinct non-empty annotations in a deterministic order."""
+    values = sorted(set(str(value) for value in values.dropna() if str(value).strip()))
+    return ';'.join(values) if values else np.nan
+
+
+def load_spectronaut_dia_ptm(path, version, experiments, quantity_column='PTM.Quantity'):
+    """Read Spectronaut's site roll-up without changing its collapse keys."""
+    if quantity_column not in _SPECTRONAUT_PTM_QUANTITIES:
+        raise ValueError(f'Unsupported Spectronaut PTM quantity: {quantity_column!r}.')
+    return _load_spectronaut(path, version, 'PTM', unique_cols=['Grouping key'], sum_cols=[], first_cols=[],
+                             max_cols=[], min_cols=[], concat_cols=[], experiments=experiments,
+                             quantity_column=quantity_column)
 
 
 #
@@ -541,6 +588,13 @@ def load(config):
 
     # columns
     raw_cols = [f'Raw {e}' for e in experiments]
+    quantity_column = config['Experiment'].get('quantity_column')
+    if quantity_column is not None:
+        if not (measurement_type == 'DIA' and search_engine == 'SPECTRONAUT' and data_type == 'PEPTIDE'):
+            raise ValueError('quantity_column is supported for Spectronaut DIA PEPTIDE imports only.')
+        if quantity_column not in _SPECTRONAUT_PTM_QUANTITIES:
+            raise ValueError(f'Unsupported Spectronaut PTM quantity: {quantity_column!r}. '
+                             f'Choose one of {sorted(_SPECTRONAUT_PTM_QUANTITIES)}.')
 
     if (measurement_type == 'DIA') and (search_engine == 'DIANN') and (data_type == 'PROTEIN'):
         unique_cols = ['Genes']
@@ -568,11 +622,14 @@ def load(config):
             df['Name'] = df['Genes']
 
     elif (measurement_type == 'DIA') and (search_engine == 'SPECTRONAUT') and (data_type == 'PEPTIDE'):
-        unique_cols = ['Modified sequence']
-        first_cols = ['Proteins', 'Genes']
-        df = load_spectronaut_dia_peptides(path, search_engine_version, unique_cols=unique_cols, first_cols=first_cols,
+        if quantity_column is not None:
+            df = load_spectronaut_dia_ptm(path, search_engine_version, experiments, quantity_column)
+        else:
+            unique_cols = ['Modified sequence']
+            first_cols = ['Proteins', 'Genes']
+            df = load_spectronaut_dia_peptides(path, search_engine_version, unique_cols=unique_cols, first_cols=first_cols,
                                            sum_cols=raw_cols, experiments=experiments)
-        if 'Genes' not in df.columns:
+        if 'Genes' not in df.columns and 'Proteins' in df.columns:
             df['Genes'] = df['Proteins']
         if 'Name' not in df.columns:
             df['Name'] = df['Genes']

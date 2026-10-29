@@ -27,10 +27,12 @@ class SpectronautMap:
         return df
 
     @staticmethod
-    def rename_quantity_columns(cols, experiments=None, parquet=None):
+    def rename_quantity_columns(cols, experiments=None, parquet=None, quantity_column=None):
         """Rename pivot quantity headers to ``Raw <run>`` in either dialect."""
-        csv_pattern = re.compile(r'^(?:\[\d+\]\s*)?(?P<run>.+)\.(?:PG|PEP)\.Quantity$')
-        parquet_pattern = re.compile(r'^(?:\[\d+\]_)?(?P<run>.+)_(?:PG|PEP)_Quantity$')
+        csv_quantity = re.escape(quantity_column) if quantity_column else r'(?:PG|PEP)\.Quantity'
+        parquet_quantity = re.escape(_to_parquet_name(quantity_column)) if quantity_column else r'(?:PG|PEP)_Quantity'
+        csv_pattern = re.compile(r'^(?:\[\d+\]\s*)?(?P<run>.+)\.' + csv_quantity + '$')
+        parquet_pattern = re.compile(r'^(?:\[\d+\]_)?(?P<run>.+)_' + parquet_quantity + '$')
         renamed = []
         parquet_headers = []
 
@@ -86,13 +88,17 @@ class SpectronautMap:
         return 'Run' in df.columns
 
     @staticmethod
-    def restructure_long_report(df, index, value_col):
+    def restructure_long_report(df, index, value_col, annotation_agg=None):
         """Pivot a long report into one ``Raw <run>`` column per run."""
         quantities = pd.pivot_table(data=df, values=value_col, index=index, columns='Run', aggfunc='first', dropna=False)
         quantities = quantities.rename(columns=lambda c: f'Raw {c}')
         quantities.columns.name = None
         quantities.reset_index(inplace=True)
-        annotations = df.drop(columns=[value_col, 'Run']).drop_duplicates(subset=index)
+        annotations = df.drop(columns=[value_col, 'Run'])
+        if annotation_agg is None:
+            annotations = annotations.drop_duplicates(subset=index)
+        else:
+            annotations = annotations.groupby(index).agg(annotation_agg).reset_index()
         df = pd.merge(left=quantities, right=annotations, on=index, how='left')
         df.reset_index(drop=True, inplace=True)
         return df

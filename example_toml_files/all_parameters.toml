@@ -31,6 +31,7 @@ measurement_type= 'OTHER'						# The measurement type <LFQ|TMT|DIA|OTHER>.
 data_type = 'OTHER'							# The data type <PEPTIDE|PROTEIN|OTHER>.
 search_engine = 'OTHER'							# The search engine <MAXQUANT|DIANN|PD|MSFRAGGER|SPECTRONAUT|OTHER>.
 search_engine_version = 'X.X.X.X'					# The search engine version.
+# quantity_column = 'PTM.Quantity'                      # Spectronaut DIA PEPTIDE only: PTM.Quantity, PTM.QuantityPerProtein, or PTM.Stoichiometry.
 
 
 #
