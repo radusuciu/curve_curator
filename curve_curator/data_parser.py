@@ -463,6 +463,8 @@ def _load_spectronaut(path, version, level, unique_cols, sum_cols, first_cols, m
         df = Mapper.restructure_long_report(df, index=unique_cols, value_col='Quantity')
     else:
         assert_constant_within(df, keys=unique_cols, cols=[c for c in df.columns if str(c).startswith('Raw ')])
+        if level == 'PEPTIDE':
+            df = df.drop_duplicates(subset=unique_cols).copy()
 
     if level == 'PEPTIDE':
         df['Modified sequence'] = clean_modified_sequence(df['Modified sequence'])
@@ -569,7 +571,7 @@ def load(config):
         unique_cols = ['Modified sequence']
         first_cols = ['Proteins', 'Genes']
         df = load_spectronaut_dia_peptides(path, search_engine_version, unique_cols=unique_cols, first_cols=first_cols,
-                                           max_cols=raw_cols, experiments=experiments)
+                                           sum_cols=raw_cols, experiments=experiments)
         if 'Genes' not in df.columns:
             df['Genes'] = df['Proteins']
         if 'Name' not in df.columns:

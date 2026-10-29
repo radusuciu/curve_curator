@@ -625,6 +625,29 @@ class TestPivotReportEndToEnd:
 
 
 class TestLoadDispatchEndToEnd:
+    @pytest.mark.parametrize('pivot', [False, True], ids=['long', 'pivot'])
+    def test_normalized_peptide_collisions_sum_quantities(self, tmp_path, pivot):
+        report = pd.DataFrame({
+            'PG.ProteinGroups': ['P1'] * 4,
+            'PG.Genes': ['G1'] * 4,
+            'PEP.GroupingKey': ['_PEPM[Oxidation (M)]K_'] * 2 + ['_PEPMK_'] * 2,
+            'FG.Charge': [2, 3, 2, 3],
+        })
+        if pivot:
+            report['dose_0.PEP.Quantity'] = [10.0, 10.0, 20.0, 20.0]
+        else:
+            report['R.Label'] = 'dose_0'
+            report['PEP.Quantity'] = [10.0, 10.0, 20.0, 20.0]
+        path = tmp_path / 'report.tsv'
+        report.to_csv(path, sep='\t', index=False)
+        config = self.config(path, 'PEPTIDE')
+        config['Experiment']['experiments'] = ['dose_0']
+
+        result = load(config)
+
+        assert result['Modified sequence'].tolist() == ['PEPMK']
+        assert result['Raw dose_0'].tolist() == [30.0]
+
     def config(self, path, data_type):
         return {
             'Paths': {'input_file': path},
