@@ -1,6 +1,6 @@
 # pandas 2 and 3 compatibility
 
-Validation date: 2026-11-06. Local branch: `compat/pandas3`, based directly on
+Validation date: 2026-11-06. Branch: `chore-pandas-3`, based directly on
 `1e0e7f5069be8f8b8b18e0a7b21dd7e543ef4783` (0.7.0). The initial working tree
 was clean. The baseline is an ancestor of this branch; no cherry-picks were needed.
 No repository AGENTS.md files or applicable ancestor instructions were present.
@@ -154,5 +154,5 @@ environment was not validated.
 After review and an upstream commit is available, a separate Synapse change can
 pin that reviewed CurveCurator commit, install it into Synapse's Python 3.13 /
 pandas[performance] 3.1 environment, run Synapse integration and dashboard checks,
-and then remove the isolated environment. This work makes no Synapse changes,
-creates no remote branch or PR, and publishes no release.
+and then remove the isolated environment. This CurveCurator PR makes no Synapse
+changes and publishes no release.
