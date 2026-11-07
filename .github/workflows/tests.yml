@@ -14,14 +14,20 @@ concurrency:
 
 jobs:
   test:
-    name: Python ${{ matrix.python-version }}
+    name: Python ${{ matrix.python-version }} / pandas ${{ matrix.pandas }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.11', '3.12', '3.13', '3.14']
+        include:
+          - {python-version: '3.11', pandas: '2.1.1', numpy: 'numpy==1.26.4', arrow: 'pyarrow==21.0.0'}
+          - {python-version: '3.12', pandas: '2.3.*', artifact: '2.3', numpy: 'numpy>=2,<3'}
+          - {python-version: '3.13', pandas: '2.3.*', artifact: '2.3', numpy: 'numpy>=2,<3'}
+          - {python-version: '3.13', pandas: '3.0.*', artifact: '3.0', numpy: 'numpy>=2,<3'}
+          - {python-version: '3.13', pandas: '3.1.*', extras: '[performance]', artifact: '3.1', numpy: 'numpy>=2,<3'}
+          - {python-version: '3.14', pandas: '3.1.*', artifact: '3.1', numpy: 'numpy>=2,<3'}
 
     steps:
       - name: Check out repository
@@ -38,7 +44,44 @@ jobs:
           poetry-version: 2.1.3
 
       - name: Install dependencies
-        run: poetry install --no-interaction
+        run: |
+          poetry install --extras parquet --no-interaction
+          poetry run python -m pip install 'pandas${{ matrix.extras }}==${{ matrix.pandas }}' '${{ matrix.numpy }}' ${{ matrix.arrow }}
+          poetry run python -m pip check
 
       - name: Run tests
         run: poetry run python -m pytest tests/unit
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+
+      - name: Synthetic workflow including dashboard, BH correction and decoy q-values
+        run: poetry run python tests/compatibility/run_workflow.py /tmp/compatibility
+        env:
+          PYTHONPATH: .
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+
+      - name: Save Python 3.13 numerical results
+        if: matrix.python-version == '3.13'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pandas-${{ matrix.artifact }}
+          path: /tmp/compatibility
+
+  compare:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v4
+        with:
+          path: results
+      - run: python -m pip install numpy pandas
+      - name: Compare pandas 2 and 3 scientific outputs
+        run: |
+          python tests/compatibility/compare_outputs.py 'results/pandas-2.3' 'results/pandas-3.0'
+          python tests/compatibility/compare_outputs.py 'results/pandas-2.3' 'results/pandas-3.1'

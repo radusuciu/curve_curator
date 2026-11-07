@@ -837,7 +837,8 @@ class LogisticModel(_Model):
         x : array-like
             Concentrations as described by the input parameters for each y value.
         """
-        y = np.asarray(y, dtype=np.float64)
+        # Mask on owned storage: pandas 3 may expose a read-only NumPy view.
+        y = np.array(y, dtype=np.float64, copy=True)
         y[y <= min(front, back)] = np.nan
         y[y >= max(front, back)] = np.nan
         with np.errstate(over='ignore', under='ignore', invalid='ignore'):

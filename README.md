@@ -180,3 +180,11 @@ A: Unfortunately, this is not possible at the moment. Please split your data by 
 Q: Where can I get more information and help?
 
 A: We added many additional information to the [supplementary text](https://static-content.springer.com/esm/art%3A10.1038%2Fs41467-023-43696-z/MediaObjects/41467_2023_43696_MOESM1_ESM.pdf 'supplementary text') of the original CurveCurator publication starting from page 13. If you have further suggestions or questions, please leave an issue message. We are happy to help you out.
+
+### pandas compatibility
+
+This fork supports pandas `>=2.1.1,<4` with statsmodels `>=0.14.6,<0.15`.
+The Poetry lock retains pandas 2.3.3; CI overrides pandas to exercise both major
+versions, including pandas 3.1 on Python 3.13. See
+[PANDAS_COMPATIBILITY.md](PANDAS_COMPATIBILITY.md) for validation results,
+numerical tolerances, reproduction commands, and limitations.
