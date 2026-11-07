@@ -105,7 +105,8 @@ def simulate_decoys(n_decoys, cols, empirical_noise):
     n_doses = len(cols)
 
     # Mask zero and implausible variance observations as they are a result of imputations
-    empirical_noise = np.asarray(empirical_noise)
+    # pandas 3 may expose a read-only NumPy view.
+    empirical_noise = np.array(empirical_noise, copy=True)
     empirical_noise[empirical_noise <= 0] = np.nan
 
     # Draw decoy noise distribution from empirical data and make it more robust against outliers in the empirical noise distribution
